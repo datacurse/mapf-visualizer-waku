@@ -6,6 +6,7 @@ import { Group } from "two.js/src/group"
 const CELL_SIZE = 100
 const CELL_STROKE_WIDTH = 10
 const CELL_STROKE_COLOR = "#000000"
+const TEXT_SIZE = CELL_SIZE / 4
 
 // const colors = {
 //   "00": "red",
@@ -21,9 +22,9 @@ export function drawMap(ctx: RenderCtx, graph: Graph): void {
       const cellY = y * CELL_SIZE;
       const cellGroup = new Group()
       // We have cellGroup here because we might want to add index of a cell on that.
-      const cell = ctx.two.makeRectangle(cellX + CELL_SIZE / 2 + CELL_STROKE_WIDTH / 2,
-        cellY + CELL_SIZE / 2 + CELL_STROKE_WIDTH / 2,
-        CELL_SIZE, CELL_SIZE)
+      const rectCenterX = cellX + CELL_SIZE / 2 + CELL_STROKE_WIDTH / 2
+      const rectCenterY = cellY + CELL_SIZE / 2 + CELL_STROKE_WIDTH / 2
+      const cell = ctx.two.makeRectangle(rectCenterX, rectCenterY, CELL_SIZE, CELL_SIZE)
       // cell.stroke = colors[x.toString() + y.toString()]
       cell.stroke = CELL_STROKE_COLOR
       cell.linewidth = CELL_STROKE_WIDTH
@@ -33,6 +34,12 @@ export function drawMap(ctx: RenderCtx, graph: Graph): void {
       }
       // We will add text here. Its visibility will be toggable from the outside. We will for loop over all cells and get second element in the group and change its visibility. Instead of choosing here whether or not to draw it. Not sure if its a good idea tho, cuz it is not explicit. How much time redrawing takes? Tho it makes more sense to be completely honest. Not sure.
       cellGroup.add(cell)
+      const text = ctx.two.makeText(
+        `${x + y * graph.width}`,
+        cellX + CELL_STROKE_WIDTH * 2,
+        cellY + CELL_STROKE_WIDTH * 3
+      )
+      text.size = TEXT_SIZE
       ctx.layers.map.add(cellGroup)
     }
   }
