@@ -3,7 +3,7 @@
 
 import { useEffect, useRef } from 'react'
 import { atom, useSetAtom } from 'jotai'
-import { readMap } from './Components/read'
+import { readMap, readSolution } from './Components/read'
 import { MapClass } from './MapCLass'
 
 export const mapClass = atom<MapClass | null>(null)
@@ -15,11 +15,12 @@ export function Map() {
   useEffect(() => {
     const initializeMap = async () => {
       const map = await readMap()
+      const solution = await readSolution()
       const ctl = new MapClass()
       setController(ctl)
       if (hostRef.current) ctl.mount(hostRef.current)
-      ctl.draw(map)
-
+      ctl.draw(map, solution)
+      ctl.setPlayAnimation(true);
       return () => {
         ctl.destroy()
         setController(null)

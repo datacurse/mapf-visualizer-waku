@@ -1,10 +1,10 @@
-import { Graph } from "./Graph";
+import { Map_ } from "./Map";
 import { parseSolution, Solution } from "./Solution";
 
-export async function readMap(): Promise<Graph> {
+export async function readMap(): Promise<Map_> {
   const mapFileResponse = await fetch('/maps/2x2.map');
   const mapFileContent = await mapFileResponse.text();
-  return new Graph(mapFileContent)
+  return new Map_(mapFileContent)
 }
 
 export async function readSolution(): Promise<Solution> {

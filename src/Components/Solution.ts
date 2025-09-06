@@ -1,4 +1,4 @@
-import { Coordinate } from './Graph';
+import { Coordinate } from './Map';
 
 export enum Orientation {
   NONE,

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { Graph } from './Graph';
+import { Graph } from './Map';
 import { parseSolution } from './Solution';
 
 export function Reader() {
