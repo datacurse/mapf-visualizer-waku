@@ -40,6 +40,7 @@ export function drawMap(ctx: RenderCtx, map: Map_): void {
         cellY + CELL_STROKE_WIDTH * 3
       )
       text.size = TEXT_SIZE
+      cellGroup.add(text)
       ctx.layers.map.add(cellGroup)
     }
   }
