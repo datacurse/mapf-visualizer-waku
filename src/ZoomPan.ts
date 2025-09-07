@@ -23,15 +23,16 @@ export class ZoomPan {
   constructor(group: Group, host: HTMLElement, opts?: ZoomPanOptions) {
     this.group = group
     this.host = host
+
     const pan = opts?.panButton
-    const panButtons = typeof pan === 'string' ? [pan] : Array.isArray(pan) ? pan : ['middle']
+    const panButtons: MouseButton[] = Array.isArray(pan) ? pan : pan ? [pan] : ['middle']
 
     this.opts = {
+      ...opts,
       minScale: 0.05,
       maxScale: 20,
       wheelSpeed: 1 / 1000,
       panButton: panButtons,
-      ...opts,
     }
 
     this.zui = new ZUI(group, host)
@@ -62,7 +63,6 @@ export class ZoomPan {
     this.host.removeEventListener('pointercancel', this.onPointerUp)
   }
 
-  // ---------- public helpers (NEW) ----------
   /** Recalc DOM-to-surface mapping (safe to call anytime). */
   public updateOffset() {
     this.zui.updateOffset()
@@ -90,7 +90,6 @@ export class ZoomPan {
     this.setView(scale, offsetX, offsetY)
   }
 
-  // ---------- internals ----------
   private onWheel(e: WheelEvent) {
     e.preventDefault()
     this.zui.zoomBy(-e.deltaY * this.opts.wheelSpeed, e.clientX, e.clientY)
