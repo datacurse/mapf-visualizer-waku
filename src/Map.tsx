@@ -4,7 +4,7 @@
 import { useEffect, useRef } from 'react'
 import { atom, useSetAtom } from 'jotai'
 import { readMap, readSolution } from './Components/read'
-import { MapClass } from './MapCLass'
+import { MapClass } from './MapClass'
 
 export const mapClass = atom<MapClass | null>(null)
 
@@ -20,7 +20,7 @@ export function Map() {
       setController(ctl)
       if (hostRef.current) ctl.mount(hostRef.current)
       ctl.draw(map, solution)
-      ctl.setPlayAnimation(true);
+      // ctl.setPlayAnimation(true);
       return () => {
         ctl.destroy()
         setController(null)

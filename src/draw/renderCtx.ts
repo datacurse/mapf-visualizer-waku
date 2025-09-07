@@ -6,7 +6,7 @@ export type Layers = {
   agents: Group
   goals: Group
   paths: Group
-  goal_vectors: Group
+  vectors: Group
 }
 
 export type RenderCtx = {

@@ -1,59 +1,65 @@
-import { Circle } from "two.js/src/shapes/circle"
-import { RenderCtx } from "./renderCtx"
-import { Group } from "two.js/src/group"
-import { Coordinate, Map_ } from "../Components/Map"
+// draw/drawMap.ts
 import Two from 'two.js';
-import { Rectangle } from "two.js/src/shapes/rectangle";
-import { TopLeftRectangle } from "../Components/TopLeftRectangle";
+import { Group } from 'two.js/src/group';
+import { TopLeftRectangle } from '../Components/TopLeftRectangle';
+import { Coordinate, Map_ } from '../Components/Map';
+import { Layers } from './renderCtx';
 
-const CELL_SIZE = 100
-const CELL_STROKE_WIDTH = 10
-const CELL_STROKE_COLOR = "#000000"
-const TEXT_SIZE = CELL_SIZE / 4
+const CELL_SIZE = 100;
+const CELL_STROKE_WIDTH = 10;
+const CELL_STROKE_COLOR = '#000000';
+const TEXT_SIZE = CELL_SIZE / 4;
 
-// const colors = {
-//   "00": "red",
-//   "01": "green",
-//   "10": "blue",
-//   "11": "yellow"
-// }
+// Two.js v0.8.17
+export function drawMap(two: Two, layers: Layers, map: Map_): Group {
+  const layer = layers.map; // write into the map layer
 
-export function drawMap(ctx: RenderCtx, map: Map_): void {
-  for (let x: number = 0; x < map.width; x++) {
-    for (let y: number = 0; y < map.height; y++) {
+  // (Optional) clear previous map tiles if re-drawing:
+  // if (layer.children.length) {
+  //   const toRelease = layer.children.slice();
+  //   layer.remove(...toRelease);
+  //   two.release(...toRelease);
+  // }
+
+  // container holding all cells (each cell = sub-Group)
+  const cellsGroup = new Group();
+  cellsGroup.className = 'cells';
+  layer.add(cellsGroup);
+
+  for (let x = 0; x < map.width; x++) {
+    for (let y = 0; y < map.height; y++) {
       const cellX = x * CELL_SIZE;
       const cellY = y * CELL_SIZE;
-      const cellGroup = new Group()
-      // We have cellGroup here because we might want to add index of a cell on that.
-      const rectCenterX = cellX + CELL_SIZE / 2 + CELL_STROKE_WIDTH / 2
-      const rectCenterY = cellY + CELL_SIZE / 2 + CELL_STROKE_WIDTH / 2
-      // const cell = ctx.two.makeRectangle(rectCenterX, rectCenterY, CELL_SIZE - CELL_STROKE_WIDTH, CELL_SIZE - CELL_STROKE_WIDTH)
-      const cell = new TopLeftRectangle(cellX, cellY, CELL_SIZE, CELL_SIZE)
-      // cell.stroke = colors[x.toString() + y.toString()]
-      cell.stroke = CELL_STROKE_COLOR
-      cell.linewidth = CELL_STROKE_WIDTH
-      cell.noFill()
+
+      // per-cell group so rect + label move/toggle together
+      const cellGroup = new Group();
+      cellGroup.className = 'cell';
+      // cellGroup.name = `cell:${x},${y}`;
+      cellsGroup.add(cellGroup);
+
+      // rectangle (top-left anchored)
+      const cell = new TopLeftRectangle(cellX, cellY, CELL_SIZE, CELL_SIZE);
+      cell.stroke = CELL_STROKE_COLOR;
+      cell.linewidth = CELL_STROKE_WIDTH;
+      cell.noFill();
       if (map.obstacles.has(new Coordinate(x, y).toString())) {
-        cell.fill = CELL_STROKE_COLOR
+        cell.fill = CELL_STROKE_COLOR;
       }
-      // We will add text here. Its visibility will be toggable from the outside. We will for loop over all cells and get second element in the group and change its visibility. Instead of choosing here whether or not to draw it. Not sure if its a good idea tho, cuz it is not explicit. How much time redrawing takes? Tho it makes more sense to be completely honest. Not sure.
-      cellGroup.add(cell)
-      const text = ctx.two.makeText(
-        `${x + y * map.width}`,
-        cellX + CELL_STROKE_WIDTH * 2,
-        cellY + CELL_STROKE_WIDTH * 3
-      )
-      text.size = TEXT_SIZE
-      cellGroup.add(text)
-      ctx.layers.map.add(cellGroup)
-    }
-  }
-  for (let x = 0; x < 4; x++) {
-    for (let y = 0; y < 4; y++) {
-      const rect = new Rectangle(x * CELL_SIZE, y * CELL_SIZE, 10, 10).noStroke();
-      rect.fill = "red"
-      ctx.layers.map.add(rect);
+      cellGroup.add(cell);
+
+      // label (use the *instance* to create text)
+      const index = x + y * map.width;
+      const text = two.makeText(
+        String(index),
+        cellX + CELL_STROKE_WIDTH * 1.5,
+        cellY + CELL_STROKE_WIDTH * 2
+      );
+      text.size = TEXT_SIZE;
+      text.alignment = 'left';
+      text.className = 'cell-index';
+      cellGroup.add(text);
     }
   }
 
+  return cellsGroup;
 }
