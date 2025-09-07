@@ -2,6 +2,9 @@ import { Circle } from "two.js/src/shapes/circle"
 import { RenderCtx } from "./renderCtx"
 import { Group } from "two.js/src/group"
 import { Coordinate, Map_ } from "../Components/Map"
+import Two from 'two.js';
+import { Rectangle } from "two.js/src/shapes/rectangle";
+import { TopLeftRectangle } from "../Components/TopLeftRectangle";
 
 const CELL_SIZE = 100
 const CELL_STROKE_WIDTH = 10
@@ -24,7 +27,8 @@ export function drawMap(ctx: RenderCtx, map: Map_): void {
       // We have cellGroup here because we might want to add index of a cell on that.
       const rectCenterX = cellX + CELL_SIZE / 2 + CELL_STROKE_WIDTH / 2
       const rectCenterY = cellY + CELL_SIZE / 2 + CELL_STROKE_WIDTH / 2
-      const cell = ctx.two.makeRectangle(rectCenterX, rectCenterY, CELL_SIZE, CELL_SIZE)
+      // const cell = ctx.two.makeRectangle(rectCenterX, rectCenterY, CELL_SIZE - CELL_STROKE_WIDTH, CELL_SIZE - CELL_STROKE_WIDTH)
+      const cell = new TopLeftRectangle(cellX, cellY, CELL_SIZE, CELL_SIZE)
       // cell.stroke = colors[x.toString() + y.toString()]
       cell.stroke = CELL_STROKE_COLOR
       cell.linewidth = CELL_STROKE_WIDTH
@@ -44,5 +48,12 @@ export function drawMap(ctx: RenderCtx, map: Map_): void {
       ctx.layers.map.add(cellGroup)
     }
   }
-  // ctx.layers.map.add(new Circle(0, 0, 1))
+  for (let x = 0; x < 4; x++) {
+    for (let y = 0; y < 4; y++) {
+      const rect = new Rectangle(x * CELL_SIZE, y * CELL_SIZE, 10, 10).noStroke();
+      rect.fill = "red"
+      ctx.layers.map.add(rect);
+    }
+  }
+
 }

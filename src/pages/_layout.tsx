@@ -8,6 +8,6 @@ export default async function RootLayout({ children }: RootLayoutProps) {
     <div className="font-['Nunito']">
       {children}
     </div>
-  );
+  )
 }
 
