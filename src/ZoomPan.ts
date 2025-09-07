@@ -1,13 +1,13 @@
+// ZoomPan.ts
 import { Group } from 'two.js/src/group'
 import { ZUI } from 'two.js/extras/jsm/zui'
 
 type MouseButton = 'left' | 'middle' | 'right'
-
 type ZoomPanOptions = {
-  minScale?: number // lowest zoom (smaller = farther out)
-  maxScale?: number // highest zoom (bigger = farther in)
-  wheelSpeed?: number // multiplier for wheel delta
-  panButton?: MouseButton | MouseButton[] // which mouse button(s) pan (left, middle, right)
+  minScale?: number
+  maxScale?: number
+  wheelSpeed?: number
+  panButton?: MouseButton | MouseButton[]
 }
 
 export class ZoomPan {
@@ -15,7 +15,7 @@ export class ZoomPan {
   private group: Group
   private zui: ZUI
   private ro: ResizeObserver
-  private opts: Omit<Required<ZoomPanOptions>, 'panButton'> & { panButton: MouseButton | MouseButton[] }
+  private opts: Omit<Required<ZoomPanOptions>, 'panButton'> & { panButton: MouseButton[] }
   private dragging = false
   private lastX = 0
   private lastY = 0
@@ -23,10 +23,8 @@ export class ZoomPan {
   constructor(group: Group, host: HTMLElement, opts?: ZoomPanOptions) {
     this.group = group
     this.host = host
-
-    // Normalize panButton to an array of MouseButton
-    const panButton = opts?.panButton
-    const panButtons: MouseButton[] = typeof panButton === 'string' ? [panButton] : Array.isArray(panButton) ? panButton : ['middle']
+    const pan = opts?.panButton
+    const panButtons = typeof pan === 'string' ? [pan] : Array.isArray(pan) ? pan : ['middle']
 
     this.opts = {
       minScale: 0.05,
@@ -39,7 +37,6 @@ export class ZoomPan {
     this.zui = new ZUI(group, host)
     this.zui.addLimits(this.opts.minScale, this.opts.maxScale)
 
-    // Events
     this.onWheel = this.onWheel.bind(this)
     this.onPointerDown = this.onPointerDown.bind(this)
     this.onPointerMove = this.onPointerMove.bind(this)
@@ -51,7 +48,6 @@ export class ZoomPan {
     host.addEventListener('pointerup', this.onPointerUp)
     host.addEventListener('pointercancel', this.onPointerUp)
 
-    // Keep viewport offset in sync
     this.ro = new ResizeObserver(() => this.zui.updateOffset())
     this.ro.observe(host)
     this.zui.updateOffset()
@@ -66,10 +62,36 @@ export class ZoomPan {
     this.host.removeEventListener('pointercancel', this.onPointerUp)
   }
 
-  // ---------- internals ----------
+  // ---------- public helpers (NEW) ----------
+  /** Recalc DOM-to-surface mapping (safe to call anytime). */
+  public updateOffset() {
+    this.zui.updateOffset()
+  }
 
+  /** Set initial view using ZUI only (no direct group.translation). */
+  public setView(scale: number, offsetX: number, offsetY: number) {
+    this.zui.reset()               // start at identity
+    this.zui.updateOffset()
+    this.zui.zoomSet(scale, 0, 0)  // anchor top-left while scaling
+    this.zui.translateSurface(offsetX, offsetY) // pan in client pixels
+  }
+
+  /** Fit a w×h surface into the host with optional padding, clamped to limits. */
+  public fitToSurface(surfaceW: number, surfaceH: number, padding = 24) {
+    const vw = this.host.clientWidth
+    const vh = this.host.clientHeight
+    const scaleRaw = Math.min(
+      (vw - padding * 2) / surfaceW,
+      (vh - padding * 2) / surfaceH
+    )
+    const scale = Math.max(this.opts.minScale, Math.min(scaleRaw, this.opts.maxScale))
+    const offsetX = (vw - surfaceW * scale) / 2
+    const offsetY = (vh - surfaceH * scale) / 2
+    this.setView(scale, offsetX, offsetY)
+  }
+
+  // ---------- internals ----------
   private onWheel(e: WheelEvent) {
-    // Zoom to cursor; prevent page scroll
     e.preventDefault()
     this.zui.zoomBy(-e.deltaY * this.opts.wheelSpeed, e.clientX, e.clientY)
   }

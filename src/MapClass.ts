@@ -4,8 +4,9 @@ import { Group } from 'two.js/src/group';
 import { Path } from 'two.js/src/path';
 import { Line } from 'two.js/src/shapes/line';
 import { Anchor } from 'two.js/src/anchor';
-import { orientationToRotation, Orientation, Pose, Solution } from './Components/Solution';
+import { orientationToRotation, Orientation, Solution } from './Components/Solution';
 import { drawMap } from './draw/drawMap';
+import { ZoomPan } from './ZoomPan'; // NEW
 
 const CELL_SIZE = 100;
 const AGENT_COLORS = ['#E91E63', '#2196F3', '#4CAF50', '#FF9800', '#00BCD4', '#9C27B0', '#795548', '#FFBB3B', '#F44336', '#607D8B', '#009688', '#3F51B5'] as const;
@@ -20,7 +21,6 @@ export class MapClass {
   private root: Group | null = null;
   private host: HTMLElement | null = null;
 
-  // Only keep a registry of layers + a single update binding
   private layers!: Record<LayerName, Group>;
   private unbindUpdate: (() => void) | null = null;
 
@@ -31,10 +31,15 @@ export class MapClass {
   private loopAnimation = true;
   private orientationAware = false;
 
+  private zoomer: ZoomPan | null = null; // NEW
+
   mount(host: HTMLElement) {
     this.destroy();
     this.two = new Two({ type: Two.Types.svg, fitted: true, autostart: true }).appendTo(host);
     this.host = host;
+
+    // optional: improve pointer behavior on touch/pen
+    this.host.style.touchAction = 'none'; // NEW
 
     // Scene root (camera target)
     const root = new Group();
@@ -51,16 +56,25 @@ export class MapClass {
     };
     root.add(this.layers.map, this.layers.goals, this.layers.paths, this.layers.vectors, this.layers.agents);
 
-    // your ZoomPan(root, host, ...)
-    // this.zoomer = new ZoomPan(root, host, { ... });
+    // Zoom + Pan (left or middle button to pan, wheel to zoom)
+    this.zoomer = new ZoomPan(root, host, {   // NEW
+      minScale: 0.05,
+      maxScale: 20,
+      wheelSpeed: 1 / 1000,
+      panButton: ['left', 'middle'],
+    });
   }
 
   async draw(map: any, solution: Solution) {
-    if (!this.two) return;
+    if (!this.two || !this.root || !this.host) return;
     this.solution = solution;
 
-    // drawMap writes into layers.map; no need to keep extra refs
-    drawMap(this.two, this.layers, map); // ok
+    // drawMap writes into layers.map
+    drawMap(this.two, this.layers, map);
+
+    // IMPORTANT: set the initial view via ZUI only
+    this.zoomer?.updateOffset();
+    this.zoomer?.fitToSurface(map.width * CELL_SIZE, map.height * CELL_SIZE, 24);
 
     this.animateSolution();
     this.two.update();
@@ -81,7 +95,7 @@ export class MapClass {
     // --- GOAL MARKERS ---
     sol[sol.length - 1].forEach((pose, agentId) => {
       const w = CELL_SIZE / 4;
-      const marker = two!.makeRectangle(this.scale(pose.position.x), this.scale(pose.position.y), w, w);
+      const marker = two.makeRectangle(this.scale(pose.position.x), this.scale(pose.position.y), w, w);
       marker.fill = AGENT_COLORS[agentId % AGENT_COLORS.length]!;
       marker.noStroke();
       marker.className = 'goal-marker';
@@ -94,7 +108,6 @@ export class MapClass {
       const verts: Anchor[] = sol.map(step =>
         new Anchor(this.scale(step[agentId].position.x), this.scale(step[agentId].position.y))
       );
-      // open polyline (closed=false), not curved
       const trail = new Path(verts, false, false);
       trail.noFill();
       trail.stroke = AGENT_COLORS[agentId % AGENT_COLORS.length]!;
@@ -113,7 +126,7 @@ export class MapClass {
       const body = new Group();
       body.className = 'agent-body';
       const r = CELL_SIZE / 3;
-      const circle = two!.makeCircle(0, 0, r);
+      const circle = two.makeCircle(0, 0, r);
       circle.fill = AGENT_COLORS[agentId % AGENT_COLORS.length]!;
       circle.noStroke();
       body.add(circle);
@@ -127,7 +140,7 @@ export class MapClass {
       agent.add(body);
 
       // Label (stays upright)
-      const idText = two!.makeText(String(agentId), 0, 0);
+      const idText = two.makeText(String(agentId), 0, 0);
       idText.size = (CELL_SIZE / 3) * FONT_SUPER_RESOLUTION_SCALE;
       idText.scale = 1 / FONT_SUPER_RESOLUTION_SCALE;
       idText.fill = TEXT_COLOR;
@@ -139,7 +152,7 @@ export class MapClass {
 
     // --- GOAL VECTORS (one Line per agent) ---
     sol[sol.length - 1].forEach((_pose, agentId) => {
-      const line = two!.makeLine(0, 0, 0, 0) as Line;
+      const line = two.makeLine(0, 0, 0, 0) as Line;
       line.stroke = AGENT_COLORS[agentId % AGENT_COLORS.length]!;
       line.linewidth = Math.max(1, CELL_SIZE / 25);
       line.cap = 'round';
@@ -176,7 +189,7 @@ export class MapClass {
       agentGroup.translation.set(this.scale(x), this.scale(y));
 
       if (this.orientationAware) {
-        const body = (agentGroup as Group).children[0] as Group; // agent-body
+        const body = (agentGroup as Group).children[0] as Group;
         const ra = orientationToRotation(a.orientation);
         const rb = orientationToRotation(b.orientation);
         body.rotation = this.lerp(ra, rb, u);
@@ -185,7 +198,6 @@ export class MapClass {
   }
 
   private updateTrails(time: number, segments: number) {
-    // Reveal percentage = time / total segments
     const t = segments > 0 ? Math.max(0, Math.min(time / segments, 1)) : 1;
     this.layers.paths.children.forEach(p => (p as Path).ending = t);
   }
@@ -205,18 +217,31 @@ export class MapClass {
   private scale(n: number) { return n * CELL_SIZE + CELL_SIZE / 2; }
   private lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
 
+  // --- helpers ---------------------------------------------------- // NEW
+
+  /** Center the map (no auto-zoom; just pans so the grid is centered). */
+  private centerOnMap(map: { width: number; height: number }) {
+    if (!this.root || !this.host) return;
+    const w = map.width * CELL_SIZE;
+    const h = map.height * CELL_SIZE;
+    const cx = this.host.clientWidth / 2 - w / 2;
+    const cy = this.host.clientHeight / 2 - h / 2;
+    this.root.translation.set(cx, cy);
+  }
+
   destroy() {
     this.unbindUpdate?.();
     this.unbindUpdate = null;
 
+    this.zoomer?.destroy();
+    this.zoomer = null;
+
     if (this.root && this.two) {
-      // nuke all layers at once by removing the root
       this.root.remove();
       this.two.release(this.root);
       this.two.clear();
       this.two.pause();
     }
-    // if you keep ZoomPan, also: this.zoomer?.destroy();
     this.root = null;
     this.two = null;
     this.host = null;
