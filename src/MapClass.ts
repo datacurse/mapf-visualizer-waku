@@ -217,18 +217,6 @@ export class MapClass {
   private scale(n: number) { return n * CELL_SIZE + CELL_SIZE / 2; }
   private lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
 
-  // --- helpers ---------------------------------------------------- // NEW
-
-  /** Center the map (no auto-zoom; just pans so the grid is centered). */
-  private centerOnMap(map: { width: number; height: number }) {
-    if (!this.root || !this.host) return;
-    const w = map.width * CELL_SIZE;
-    const h = map.height * CELL_SIZE;
-    const cx = this.host.clientWidth / 2 - w / 2;
-    const cy = this.host.clientHeight / 2 - h / 2;
-    this.root.translation.set(cx, cy);
-  }
-
   destroy() {
     this.unbindUpdate?.();
     this.unbindUpdate = null;

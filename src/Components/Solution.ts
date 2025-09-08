@@ -8,18 +8,18 @@ export enum Orientation {
   Y_PLUS
 }
 
-export function orientationToRotation(o: Orientation): number {
-  switch (o) {
+export function orientationToRotation(orientation: Orientation): number {
+  switch (orientation) {
     case Orientation.NONE: return 0;
     case Orientation.X_MINUS: return Math.PI;
     case Orientation.X_PLUS: return 0;
     case Orientation.Y_MINUS: return -Math.PI / 2;
     case Orientation.Y_PLUS: return Math.PI / 2;
   }
-};
+}
 
-function orientationFromString(s: string): Orientation {
-  switch (s) {
+function orientationFromString(orientationString: string | undefined): Orientation {
+  switch (orientationString) {
     case "X_MINUS": return Orientation.X_MINUS;
     case "X_PLUS": return Orientation.X_PLUS;
     case "Y_MINUS": return Orientation.Y_MINUS;
@@ -38,31 +38,31 @@ export class Pose {
   }
 }
 
-export type Config = Pose[];
-export type Solution = Config[];
+export type Solution = Pose[][];
 
 export function parseSolution(text: string): Solution {
-  const lines = text.trim().split("\n");
-  const solution: Solution = [];
-
-  for (const line of lines) {
-    const config: Config = [];
-
-    const pos_re = /(\((\d+),(\d+),?([XY]{1}_[A-Z]{4,5})?\),)/g;
-    while (true) {
-      const m = pos_re.exec(line);
-      if (m === null) break;
-      if (m === null || m.length !== 5) throw new Error("Invalid solution");
-      const x = Number(m[2]);
-      if (x < 0) throw new Error(`Invalid solution: position ${x} is negative`);
-      const y = Number(m[3]);
-      if (y < 0) throw new Error(`Invalid solution: position ${y} is negative`);
-      const o = orientationFromString(m[4]!);
-      const pose = new Pose(new Coordinate(x, y), o);
-      config.push(pose);
-    }
-    if (config.length === 0) throw new Error("Invalid solution");
-    solution.push(config);
-  }
-  return solution;
+  return text
+    .trim()
+    .split(/\r?\n/)
+    .map(lineString => {
+      // 0:(18,26),(29,21),(18,24),
+      const afterColonString = lineString.replace(/^.*:/, ""); // (18,26),(29,21),(18,24)
+      const poseStrings = afterColonString.match(/\(([^)]*)\)/g) || []; // [(18,26), (29,21), (18,24)]
+      const linePoses = poseStrings.map(poseString => { // (18,26)
+        const innerString = poseString.slice(1, -1); // 18,26
+        const [xNumber, yNumber, orientation] = innerString
+          .split(",") // [18, 26]
+          .map((partString, partIndex) => {
+            switch (partIndex) {
+              case 0: return Number(partString);
+              case 1: return Number(partString);
+              case 2: return orientationFromString(partString);
+              default: throw new Error(`Unexpected extra part in pose string: "${partString}"`);
+            }
+          }) as [number, number, Orientation];
+        return new Pose(new Coordinate(xNumber, yNumber), orientation);
+      });
+      if (linePoses.length === 0) throw new Error("Invalid solution");
+      return linePoses;
+    });
 }

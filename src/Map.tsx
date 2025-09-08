@@ -34,7 +34,7 @@ export function Map() {
   }, [setController])
 
   return (
-    <div className="flex w-full h-screen select-none" style={{ background: '#bbb' }}>
+    <div className="flex w-full h-screen select-none" style={{ background: '#ffffff' }}>
       <div className="relative flex-1">
         <div ref={hostRef} className="absolute inset-0" />
       </div>
