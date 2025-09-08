@@ -50,7 +50,8 @@ export function drawMap(two: Two, layers: Layers, map: Map_): Group {
       // label (use the *instance* to create text)
       const index = x + y * map.width;
       const text = two.makeText(
-        String(index),
+        // String(index),
+        `${x},${y}`,
         cellX + CELL_STROKE_WIDTH * 1.5,
         cellY + CELL_STROKE_WIDTH * 2
       );

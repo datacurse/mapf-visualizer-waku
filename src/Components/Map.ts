@@ -24,7 +24,6 @@ export class Map_ {
 
   private parseGraph(fileContent: string) {
     const lines = fileContent.replace(/\r/g, '').split('\n').filter(line => line.trim() !== '');
-    console.log(lines)
     if (lines.length < 4) {
       throw new Error('Invalid map file');
     }
