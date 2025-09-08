@@ -46,8 +46,8 @@ export function parseSolution(text: string): Solution {
     .split(/\r?\n/)
     .map(lineString => {
       // 0:(18,26),(29,21),(18,24),
-      const afterColonString = lineString.replace(/^.*:/, ""); // (18,26),(29,21),(18,24)
-      const poseStrings = afterColonString.match(/\(([^)]*)\)/g) || []; // [(18,26), (29,21), (18,24)]
+      const poseStrings = lineString.match(/\(([^)]*)\)/g) || []; // [(18,26), (29,21), (18,24)]
+      console.log(poseStrings)
       const linePoses = poseStrings.map(poseString => { // (18,26)
         const innerString = poseString.slice(1, -1); // 18,26
         const [xNumber, yNumber, orientation] = innerString
