@@ -3,7 +3,7 @@ import Two from 'two.js';
 import { Group } from 'two.js/src/group';
 import { TopLeftRectangle } from '../Components/TopLeftRectangle';
 import { Coordinate, Map_ } from '../Components/Map';
-import { Layers } from './renderCtx';
+import { Layers } from '../MapClass';
 
 const CELL_SIZE = 100;
 const CELL_STROKE_WIDTH = 10;

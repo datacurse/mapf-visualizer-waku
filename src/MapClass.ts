@@ -14,14 +14,25 @@ const TEXT_COLOR = '#000';
 const BACKGROUND_COLOR = '#FFF';
 const FONT_SUPER_RESOLUTION_SCALE = 3;
 
-type LayerName = 'map' | 'goals' | 'paths' | 'vectors' | 'agents';
+type LayerName = 'map' | 'goals' | 'trials' | 'vectors' | 'agents';
+export type Layers = Record<LayerName, Group>
+
+function getAgentColor(agentId: number) {
+  return AGENT_COLORS[agentId % AGENT_COLORS.length]!
+}
+
+type TrailProgress = {
+  segLens: number[];
+  cum: number[];   // cumulative lengths (same length as verts)
+  total: number;   // total path length
+};
 
 export class MapClass {
   private two: Two | null = null;
   private root: Group | null = null;
   private host: HTMLElement | null = null;
 
-  private layers!: Record<LayerName, Group>;
+  private layers!: Layers;
   private unbindUpdate: (() => void) | null = null;
 
   private solution: Solution | null = null;
@@ -50,11 +61,11 @@ export class MapClass {
     this.layers = {
       map: new Group(),
       goals: new Group(),
-      paths: new Group(),
+      trials: new Group(),
       vectors: new Group(),
       agents: new Group(),
     };
-    root.add(this.layers.map, this.layers.goals, this.layers.paths, this.layers.vectors, this.layers.agents);
+    root.add(this.layers.map, this.layers.goals, this.layers.trials, this.layers.vectors, this.layers.agents);
 
     // Zoom + Pan (left or middle button to pan, wheel to zoom)
     this.zoomer = new ZoomPan(root, host, {   // NEW
@@ -90,44 +101,60 @@ export class MapClass {
     this.timestep = 0;
 
     const sol = this.solution;
-    this.orientationAware = sol[0][0].orientation !== Orientation.NONE;
+    if (!sol[0]) return;
+    const firstPose = sol[0][0];
+    if (!firstPose) return;
+    this.orientationAware = firstPose.orientation !== Orientation.NONE;
 
-    // --- GOAL MARKERS ---
-    sol[sol.length - 1].forEach((pose, agentId) => {
-      const w = CELL_SIZE / 4;
-      const marker = two.makeRectangle(this.scale(pose.position.x), this.scale(pose.position.y), w, w);
-      marker.fill = AGENT_COLORS[agentId % AGENT_COLORS.length]!;
-      marker.noStroke();
-      marker.className = 'goal-marker';
-      this.layers.goals.add(marker);
-    });
-
-    // --- PATHS: one Path per agent + animate `.ending` ---
+    // Trails (precompute per-trail distance tables)
     const segments = sol.length - 1;
     sol[0].forEach((_p, agentId) => {
-      const verts: Anchor[] = sol.map(step =>
-        new Anchor(this.scale(step[agentId].position.x), this.scale(step[agentId].position.y))
-      );
+      const verts: Anchor[] = sol.map((step, stepIndex) => {
+        const agent = step[agentId];
+        if (!agent) {
+          throw new Error(`Invalid solution: missing agent ${agentId} at step ${stepIndex}`);
+        }
+        return new Anchor(this.scale(agent.position.x), this.scale(agent.position.y));
+      });
+
       const trail = new Path(verts, false, false);
       trail.noFill();
-      trail.stroke = AGENT_COLORS[agentId % AGENT_COLORS.length]!;
+      trail.stroke = getAgentColor(agentId);
       trail.linewidth = CELL_SIZE / 10;
-      trail.className = 'agent-trail';
-      trail.ending = 0; // start hidden
-      this.layers.paths.add(trail);
+      trail.cap = 'round';
+      trail.className = 'trail';
+      trail.ending = 0;
+
+      // --- NEW: precompute segment/cumulative lengths to drive Path.ending by distance
+      const pts = verts.map(v => ({ x: v.x, y: v.y }));
+      const segLens: number[] = [];
+      let total = 0;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const dx = pts[i + 1].x - pts[i].x;
+        const dy = pts[i + 1].y - pts[i].y;
+        const len = Math.hypot(dx, dy);
+        segLens.push(len);
+        total += len;
+      }
+      const cum: number[] = [0];
+      for (let i = 0; i < segLens.length; i++) cum.push(cum[i] + segLens[i]);
+
+      (trail as Path & { _progress?: TrailProgress })._progress = { segLens, cum, total };
+
+      this.layers.trials.add(trail);
     });
 
-    // --- AGENTS (one group per agent) ---
+    // Agents
     sol[0].forEach((_pose, agentId) => {
       const agent = new Group();
       agent.className = 'agent';
 
-      // Body (rotates)
+      // Body
       const body = new Group();
       body.className = 'agent-body';
       const r = CELL_SIZE / 3;
       const circle = two.makeCircle(0, 0, r);
-      circle.fill = AGENT_COLORS[agentId % AGENT_COLORS.length]!;
+      circle.fill = getAgentColor(agentId);
       circle.noStroke();
       body.add(circle);
 
@@ -139,7 +166,7 @@ export class MapClass {
       }
       agent.add(body);
 
-      // Label (stays upright)
+      // Label
       const idText = two.makeText(String(agentId), 0, 0);
       idText.size = (CELL_SIZE / 3) * FONT_SUPER_RESOLUTION_SCALE;
       idText.scale = 1 / FONT_SUPER_RESOLUTION_SCALE;
@@ -150,21 +177,37 @@ export class MapClass {
       this.layers.agents.add(agent);
     });
 
-    // --- GOAL VECTORS (one Line per agent) ---
-    sol[sol.length - 1].forEach((_pose, agentId) => {
+    // Goal Markers
+    const lastPose = sol[sol.length - 1];
+    if (!lastPose) return;
+    lastPose.forEach((pose, agentId) => {
+      const w = CELL_SIZE / 4;
+      const marker = two.makeRectangle(this.scale(pose.position.x), this.scale(pose.position.y), w, w);
+      marker.fill = getAgentColor(agentId);
+      marker.noStroke();
+      marker.className = 'marker';
+      this.layers.goals.add(marker);
+    });
+
+    // Goal Vectors
+    lastPose.forEach((_pose, agentId) => {
       const line = two.makeLine(0, 0, 0, 0) as Line;
-      line.stroke = AGENT_COLORS[agentId % AGENT_COLORS.length]!;
+      line.stroke = getAgentColor(agentId);
       line.linewidth = Math.max(1, CELL_SIZE / 25);
       line.cap = 'round';
-      line.className = 'goal-vector';
+      line.className = 'vector';
       this.layers.vectors.add(line);
     });
 
-    // --- ANIMATION LOOP ---
-    const update = () => {
+    // Animation Loop (time-based)
+    const update = (_frameCount: number, timeDelta: number) => {
+      const dt = timeDelta / 1000; // seconds since last frame
+
       if (this.playAnimation) {
-        if (this.timestep < segments) this.timestep += this.stepSize / 60;
-        else if (this.loopAnimation) this.timestep = 0;
+        this.timestep += this.stepSize * dt; // steps per second
+        if (this.timestep >= segments) {
+          this.timestep = this.loopAnimation ? 0 : segments;
+        }
       }
       const k = Math.min(this.timestep, segments);
       this.updateAgents(k);
@@ -179,17 +222,27 @@ export class MapClass {
   private updateAgents(time: number) {
     if (!this.solution) return;
     const sol = this.solution;
+    if (sol.length === 0) throw new Error("Invalid solution: no timesteps");
+
     const t0 = Math.floor(time);
+    if (t0 < 0 || t0 >= sol.length) throw new Error(`Invalid timestep: ${t0}`);
+    const t1 = Math.min(t0 + 1, sol.length - 1);
     const u = time - t0;
 
     this.layers.agents.children.forEach((agentGroup, i) => {
-      const a = sol[t0][i], b = sol[Math.min(t0 + 1, sol.length - 1)][i];
+      const a = sol[t0][i];
+      const b = sol[t1][i];
+      if (!a) throw new Error(`Invalid solution: missing agent ${i} at step ${t0}`);
+      if (!b) throw new Error(`Invalid solution: missing agent ${i} at step ${t1}`);
+
       const x = this.lerp(a.position.x, b.position.x, u);
       const y = this.lerp(a.position.y, b.position.y, u);
       agentGroup.translation.set(this.scale(x), this.scale(y));
 
       if (this.orientationAware) {
         const body = (agentGroup as Group).children[0] as Group;
+        if (!body) throw new Error(`Agent ${i} has no body group`);
+
         const ra = orientationToRotation(a.orientation);
         const rb = orientationToRotation(b.orientation);
         body.rotation = this.lerp(ra, rb, u);
@@ -198,19 +251,43 @@ export class MapClass {
   }
 
   private updateTrails(time: number, segments: number) {
-    const t = segments > 0 ? Math.max(0, Math.min(time / segments, 1)) : 1;
-    this.layers.paths.children.forEach(p => (p as Path).ending = t);
+    // Drive Path.ending by actual distance traveled along each trail
+    const t0 = Math.floor(time);
+    const u = time - t0; // [0,1) within the current step
+
+    this.layers.trials.children.forEach((p) => {
+      const path = p as Path & { _progress?: TrailProgress };
+      const prog = path._progress;
+      if (!prog || prog.total === 0) {
+        // fallback to index-based fraction
+        path.ending = Math.min(1, segments > 0 ? time / segments : 1);
+        return;
+      }
+      const idx = Math.min(t0, prog.segLens.length - 1);
+      const traveled = prog.cum[idx] + u * (prog.segLens[idx] || 0);
+      path.ending = Math.min(1, traveled / prog.total);
+    });
   }
 
   private updateGoalVectors() {
     if (!this.solution) return;
+    if (this.solution.length === 0) throw new Error("Invalid solution: no timesteps");
+
     const goals = this.solution[this.solution.length - 1];
+    if (!goals || goals.length === 0) throw new Error("Invalid solution: no goals in last timestep");
 
     this.layers.vectors.children.forEach((line, i) => {
-      const agent = this.layers.agents.children[i] as Group;
+      const agent = this.layers.agents.children[i] as Group | undefined;
+      if (!agent) throw new Error(`Missing agent group for agent ${i}`);
+
       const goal = goals[i];
-      (line as Line).vertices[0].set(agent.translation.x, agent.translation.y);
-      (line as Line).vertices[1].set(this.scale(goal.position.x), this.scale(goal.position.y));
+      if (!goal) throw new Error(`Missing goal pose for agent ${i}`);
+
+      const lineShape = line as Line;
+      if (lineShape.vertices.length < 2) throw new Error(`Line for agent ${i} is malformed`);
+
+      lineShape.vertices[0].set(agent.translation.x, agent.translation.y);
+      lineShape.vertices[1].set(this.scale(goal.position.x), this.scale(goal.position.y));
     });
   }
 
