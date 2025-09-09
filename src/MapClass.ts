@@ -164,15 +164,19 @@ export class MapClass {
         tri.noStroke();
         body.add(tri);
       }
-      agent.add(body);
 
       // Label
       const idText = two.makeText(String(agentId), 0, 0);
       idText.size = (CELL_SIZE / 3) * FONT_SUPER_RESOLUTION_SCALE;
       idText.scale = 1 / FONT_SUPER_RESOLUTION_SCALE;
       idText.fill = TEXT_COLOR;
+      idText.baseline = 'baseline'
       idText.className = 'agent-label';
-      agent.add(idText);
+      const boundingBox = idText.getBoundingClientRect()
+      // const boundingBoxRect = two.makeRectangle(0, 0, boundingBox.width, boundingBox.height).noStroke();
+      idText.position.y = boundingBox.height / 2
+      agent.add(body, idText);
+
 
       this.layers.agents.add(agent);
     });
