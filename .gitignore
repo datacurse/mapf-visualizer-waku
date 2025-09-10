@@ -5,3 +5,5 @@ dist
 .cache
 .DS_Store
 *.pem
+server/__pycache__
+server/__venv__

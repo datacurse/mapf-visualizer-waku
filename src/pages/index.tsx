@@ -1,19 +1,18 @@
 "use client"
 
 import { Suspense, useEffect } from 'react'
-import { useRouter } from 'waku'
-import { useAtomValue } from 'jotai'
-import { Reader } from '../Components/FileReader'
 import { Map } from '../Map'
+import { ensureSocket } from '../socketClient'
 
 export default function HomePage() {
+  useEffect(() => {
+    ensureSocket()
+  }, [])
+
   return (
     <Suspense fallback={<p>Loading...</p>}>
       <div className="flex h-screen flex-col">
-        {/* <Navbar /> */}
-        {/* <TwoCanvas /> */}
         <Map />
-
       </div>
     </Suspense>
   )
