@@ -60,24 +60,6 @@ async def connect(sid, environ, auth):
     await sio.emit("game_state", current_state(), to=sid)
 
 @sio.event
-async def move(sid, data):
-    rid = data.get("id", "r1")
-    d = data.get("dir")
-    r = robots.get(rid)
-    if not r or d not in ("left", "right", "up", "down"):
-        return
-    gx, gy = r.position.grid.x, r.position.grid.y
-    if d == "left":
-        nx, ny = gx - 1, gy
-    elif d == "right":
-        nx, ny = gx + 1, gy
-    elif d == "up":
-        nx, ny = gx, gy - 1
-    else:
-        nx, ny = gx, gy + 1
-    r.move_to(nx, ny, grid_width, grid_height, blocked)
-
-@sio.event
 async def move_to(sid, data):
     rid = data.get("id", "r1")
     tx = int(data.get("x"))

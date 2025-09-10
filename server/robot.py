@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Tuple, Optional, Callable
 from collections import deque
+import heapq
 
 class Orientation(IntEnum):
     X_RIGHT = 0
@@ -68,6 +69,97 @@ class RobotState(IntEnum):
     ROTATING = 1
     MOVING = 2
 
+def is_clear_line(x1: int, y1: int, x2: int, y2: int, blocked: Callable[[int, int], bool]) -> bool:
+    dx = x2 - x1
+    dy = y2 - y1
+    if dx == 0 and dy == 0:
+        return True
+    stepx = 0 if dx == 0 else (1 if dx > 0 else -1)
+    stepy = 0 if dy == 0 else (1 if dy > 0 else -1)
+    steps = max(abs(dx), abs(dy))
+    for i in range(1, steps + 1):
+        nx = x1 + i * stepx
+        ny = y1 + i * stepy
+        if blocked(nx, ny):
+            return False
+    return True
+
+def plan_l_path(sx: int, sy: int, gx: int, gy: int, blocked: Callable[[int, int], bool]) -> Optional[deque[Tuple[int, int]]]:
+    if sx == gx or sy == gy:
+        if is_clear_line(sx, sy, gx, gy, blocked):
+            return deque([(gx, gy)])
+    a = (gx, sy)
+    if is_clear_line(sx, sy, *a, blocked) and is_clear_line(*a, gx, gy, blocked):
+        return deque([a, (gx, gy)])
+    b = (sx, gy)
+    if is_clear_line(sx, sy, *b, blocked) and is_clear_line(*b, gx, gy, blocked):
+        return deque([b, (gx, gy)])
+    return None
+
+def compress_straight_segments(cells: list[Tuple[int, int]]) -> deque[Tuple[int, int]]:
+    out: deque[Tuple[int, int]] = deque()
+    if len(cells) <= 1:
+        return out
+    prev_dx = cells[1][0] - cells[0][0]
+    prev_dy = cells[1][1] - cells[0][1]
+    for j in range(1, len(cells) - 1):
+        ndx = cells[j + 1][0] - cells[j][0]
+        ndy = cells[j + 1][1] - cells[j][1]
+        if (ndx, ndy) != (prev_dx, prev_dy):
+            out.append(cells[j])
+            prev_dx, prev_dy = ndx, ndy
+    out.append(cells[-1])
+    return out
+
+def plan_min_turn_path(
+    sx: int,
+    sy: int,
+    start_dir: int,
+    gx: int,
+    gy: int,
+    grid_w: int,
+    grid_h: int,
+    blocked: Callable[[int, int], bool],
+) -> Optional[deque[Tuple[int, int]]]:
+    dirs = [(1, 0), (0, 1), (-1, 0), (0, -1)]
+    pq: list[tuple[int, int, int, int, int, int, int]] = []
+    dist: dict[tuple[int, int, int], tuple[int, int]] = {}
+    parent: dict[tuple[int, int, int], tuple[int, int, int]] = {}
+    start_key = (sx, sy, start_dir)
+    dist[start_key] = (0, 0)
+    heapq.heappush(pq, (0, 0, 0, sx, sy, start_dir, 0))
+    end_key: Optional[tuple[int, int, int]] = None
+    while pq:
+        turns, steps, neg_run, x, y, dcur, run = heapq.heappop(pq)
+        if (x, y) == (gx, gy):
+            end_key = (x, y, dcur)
+            break
+        if dist.get((x, y, dcur)) != (turns, steps):
+            continue
+        for ndir, (ddx, ddy) in enumerate(dirs):
+            nx, ny = x + ddx, y + ddy
+            if nx < 0 or ny < 0 or nx >= grid_w or ny >= grid_h or blocked(nx, ny):
+                continue
+            nturns = turns + (0 if ndir == dcur else 1)
+            nsteps = steps + 1
+            nrun = run + 1 if ndir == dcur else 1
+            key = (nx, ny, ndir)
+            cur_best = dist.get(key)
+            if cur_best is None or (nturns < cur_best[0]) or (nturns == cur_best[0] and nsteps < cur_best[1]):
+                dist[key] = (nturns, nsteps)
+                parent[key] = (x, y, dcur)
+                heapq.heappush(pq, (nturns, nsteps, -nrun, nx, ny, ndir, nrun))
+    if end_key is None:
+        return None
+    path_cells: list[Tuple[int, int]] = []
+    cur = end_key
+    while cur != start_key:
+        path_cells.append((cur[0], cur[1]))
+        cur = parent[cur]
+    path_cells.reverse()
+    cells = [(sx, sy)] + path_cells
+    return compress_straight_segments(cells)
+
 class Robot:
     config = RobotConfig()
 
@@ -128,51 +220,22 @@ class Robot:
         self._target_abs = None
         self._start_rotation_to(orientation_to_deg(o))
 
-    def move(self, orientation: Orientation, distance: int) -> None:
-        if not self.idle():
-            return
-        gx, gy = self.position.grid.x, self.position.grid.y
-        deltas = {
-            Orientation.X_RIGHT: (distance, 0),
-            Orientation.X_LEFT: (-distance, 0),
-            Orientation.Y_DOWN: (0, distance),
-            Orientation.Y_UP: (0, -distance),
-        }
-        dx, dy = deltas[orientation]
-        targetX, targetY = gx + dx, gy + dy
-        self._path.clear()
-        self._target_grid = (targetX, targetY)
-        self._target_abs = None
-        self._start_rotation_to(orientation_to_deg(orientation))
-
     def move_to(self, gx: int, gy: int, grid_w: int, grid_h: int, blocked: Callable[[int, int], bool]) -> bool:
         if not self.idle():
             return False
         sx, sy = self.position.grid.x, self.position.grid.y
         if (sx, sy) == (gx, gy):
             return True
-        q = deque()
-        q.append((sx, sy))
-        seen = {(sx, sy)}
-        parent: dict[Tuple[int, int], Tuple[int, int]] = {}
-        while q:
-            x, y = q.popleft()
-            if (x, y) == (gx, gy):
-                break
-            for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
-                if 0 <= nx < grid_w and 0 <= ny < grid_h and not blocked(nx, ny) and (nx, ny) not in seen:
-                    seen.add((nx, ny))
-                    parent[(nx, ny)] = (x, y)
-                    q.append((nx, ny))
-        if (gx, gy) not in parent and (sx, sy) != (gx, gy):
+        l = plan_l_path(sx, sy, gx, gy, blocked)
+        if l is not None:
+            self._path = l
+            self._advance_path()
+            return True
+        start_dir = int(deg_to_orientation(self.heading_deg()))
+        segs = plan_min_turn_path(sx, sy, start_dir, gx, gy, grid_w, grid_h, blocked)
+        if segs is None:
             return False
-        path: list[Tuple[int, int]] = []
-        cur = (gx, gy)
-        while cur != (sx, sy):
-            path.append(cur)
-            cur = parent[cur]
-        path.reverse()
-        self._path = deque(path)
+        self._path = segs
         self._advance_path()
         return True
 
