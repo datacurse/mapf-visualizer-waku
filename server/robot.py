@@ -1,7 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Callable
+from collections import deque
 
 class Orientation(IntEnum):
     X_RIGHT = 0
@@ -21,7 +22,6 @@ class AbsolutePose:
     y: float
     rotation_deg: float
 
-# @dataclass(frozen=True)
 class RobotConfig:
     cell_size_m: float = 0.5
     speed_mps: float = 10
@@ -83,6 +83,7 @@ class Robot:
         self._target_abs: Optional[Tuple[float, float]] = None
         self._target_heading: Optional[float] = None
         self._rot_dir = 0
+        self._path: deque[Tuple[int, int]] = deque()
 
     def heading_deg(self) -> float:
         return self.position.absolute.rotation_deg
@@ -109,6 +110,24 @@ class Robot:
         self.linear_speed = self.config.speed_mps
         self.state = RobotState.MOVING
 
+    def _advance_path(self) -> None:
+        if self.state is not RobotState.IDLE or not self._path:
+            return
+        cx, cy = self.position.grid.x, self.position.grid.y
+        nx, ny = self._path.popleft()
+        dx, dy = nx - cx, ny - cy
+        if dx > 0:
+            o = Orientation.X_RIGHT
+        elif dx < 0:
+            o = Orientation.X_LEFT
+        elif dy > 0:
+            o = Orientation.Y_DOWN
+        else:
+            o = Orientation.Y_UP
+        self._target_grid = (nx, ny)
+        self._target_abs = None
+        self._start_rotation_to(orientation_to_deg(o))
+
     def move(self, orientation: Orientation, distance: int) -> None:
         if not self.idle():
             return
@@ -121,9 +140,41 @@ class Robot:
         }
         dx, dy = deltas[orientation]
         targetX, targetY = gx + dx, gy + dy
+        self._path.clear()
         self._target_grid = (targetX, targetY)
         self._target_abs = None
         self._start_rotation_to(orientation_to_deg(orientation))
+
+    def move_to(self, gx: int, gy: int, grid_w: int, grid_h: int, blocked: Callable[[int, int], bool]) -> bool:
+        if not self.idle():
+            return False
+        sx, sy = self.position.grid.x, self.position.grid.y
+        if (sx, sy) == (gx, gy):
+            return True
+        q = deque()
+        q.append((sx, sy))
+        seen = {(sx, sy)}
+        parent: dict[Tuple[int, int], Tuple[int, int]] = {}
+        while q:
+            x, y = q.popleft()
+            if (x, y) == (gx, gy):
+                break
+            for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                if 0 <= nx < grid_w and 0 <= ny < grid_h and not blocked(nx, ny) and (nx, ny) not in seen:
+                    seen.add((nx, ny))
+                    parent[(nx, ny)] = (x, y)
+                    q.append((nx, ny))
+        if (gx, gy) not in parent and (sx, sy) != (gx, gy):
+            return False
+        path: list[Tuple[int, int]] = []
+        cur = (gx, gy)
+        while cur != (sx, sy):
+            path.append(cur)
+            cur = parent[cur]
+        path.reverse()
+        self._path = deque(path)
+        self._advance_path()
+        return True
 
     def update(self, dt: float) -> None:
         if self.state is RobotState.ROTATING and self._target_heading is not None:
@@ -147,29 +198,21 @@ class Robot:
                         self._start_translation_to(gx, gy)
                 else:
                     self.set_heading_deg(cur + step)
-
         elif self.state is RobotState.MOVING and self._target_abs is not None:
             tx, ty = self._target_abs
-            x,  y  = self.position.absolute.x, self.position.absolute.y
-            step   = self.linear_speed * dt
-
+            x, y = self.position.absolute.x, self.position.absolute.y
+            step = self.linear_speed * dt
             dx = tx - x
             dy = ty - y
-
-            # We only ever move along one axis for a grid leg; pick the non-zero one.
             if abs(dx) > 1e-12:
-                move = max(-abs(dx), min(abs(dx), step))  # clamp to remaining distance
+                move = max(-abs(dx), min(abs(dx), step))
                 nx = x + (move if dx >= 0 else -move)
                 ny = y
             else:
                 move = max(-abs(dy), min(abs(dy), step))
                 nx = x
                 ny = y + (move if dy >= 0 else -move)
-
-            # keep the current heading for drawing
             self.position.set_absolute(AbsolutePose(nx, ny, self.heading_deg()))
-
-            # snap exactly on arrival (prevents sub-pixel linger)
             if abs(nx - tx) < 1e-9 and abs(ny - ty) < 1e-9:
                 self.position.set_absolute(AbsolutePose(tx, ty, self.heading_deg()))
                 self.position.set_grid(
@@ -180,7 +223,7 @@ class Robot:
                 self._target_grid = None
                 self._target_heading = None
                 self.state = RobotState.IDLE
-
+                self._advance_path()
 
     def idle(self) -> bool:
         return self.state is RobotState.IDLE

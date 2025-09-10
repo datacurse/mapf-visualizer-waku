@@ -1,46 +1,39 @@
-import { io, Socket } from 'socket.io-client'
-import { notePacket } from './fps'
-import { Grid } from './types';
-import type { Direction } from './types'
+// src/sim/socketClient.ts
+"use client"
 
-type WireGrid = { width: number; height: number; obstacles: number[][] }
-type WireRobot = {
-  id: string
-  grid: { x: number; y: number; rotation: number }
-  absolute: { x: number; y: number; rotation_deg: number }
+import { io, Socket } from "socket.io-client"
+
+type GameState = {
+  grid: { width: number; height: number; obstacles: [number, number][] }
+  cell_size_m: number
+  robots: {
+    id: string
+    grid: { x: number; y: number; rotation: number }
+    absolute: { x: number; y: number; rotation_deg: number }
+  }[]
 }
-type WireState = { grid: WireGrid; cell_size_m: number; robots: WireRobot[] }
 
 let socket: Socket | null = null
-const listeners = new Set<(state: { grid: Grid; robots: WireRobot[]; cellSizeM: number }) => void>()
-
-function toKey(x: number, y: number) { return `(${x}, ${y})` }
-
-function toGrid(w: WireGrid): Grid {
-  const m = new Map<string, boolean>()
-  for (const [x, y] of w.obstacles) m.set(toKey(x, y), true)
-  return { width: w.width, height: w.height, obstacles: m }
-}
+type Listener = (s: { grid: { width: number; height: number; obstacles: Set<string> }; robots: GameState["robots"]; cellSizeM: number }) => void
+const listeners = new Set<Listener>()
 
 export function ensureSocket() {
-  if (!socket) {
-    socket = io('http://localhost:8000', { transports: ['websocket'] })
-    socket.on('game_state', (ws: WireState) => {
-      notePacket()
-      const grid = toGrid(ws.grid)
-      for (const cb of listeners) cb({ grid, robots: ws.robots, cellSizeM: ws.cell_size_m })
-    })
-  }
+  if (socket) return socket
+  socket = io("http://localhost:8000", { transports: ["websocket"] })
+  socket.on("game_state", (s: GameState) => {
+    const obstacles = new Set(s.grid.obstacles.map(([x, y]) => `${x},${y}`))
+    const payload = { grid: { width: s.grid.width, height: s.grid.height, obstacles }, robots: s.robots, cellSizeM: s.cell_size_m }
+    listeners.forEach(fn => fn(payload))
+  })
   return socket
 }
 
-export function onState(cb: (state: { grid: Grid; robots: WireRobot[]; cellSizeM: number }) => void) {
+export function onState(cb: Listener) {
   listeners.add(cb)
-  return () => { listeners.delete(cb) }
+  return () => listeners.delete(cb)
 }
 
-
-export function sendMove(dir: Direction, id = 'r1') {
-  ensureSocket().emit('move', { id, dir })
+export function sendMoveTo(x: number, y: number, id = "r1") {
+  if (!socket) ensureSocket()
+  socket!.emit("move_to", { id, x, y })
 }
-

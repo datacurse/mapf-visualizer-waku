@@ -1,15 +1,16 @@
-'use client'
+"use client"
 
-import { useEffect, useRef } from 'react'
-import { atom, useSetAtom } from 'jotai'
-import { TwoController } from './TwoController'
-import { ensureSocket, onState } from './socketClient'
-
-export const mapClass = atom<TwoController | null>(null)
+import { useEffect, useRef } from "react"
+import { useSetAtom } from "jotai"
+import { TwoController } from "./TwoController"
+import { ensureSocket, onState } from "./socketClient"
+import ClickOverlay from "./ClickOverlay"
+import { gridAtom, mapClass } from "./atoms"
 
 export function SimulatorMap() {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const setController = useSetAtom(mapClass)
+  const setGrid = useSetAtom(gridAtom)
 
   useEffect(() => {
     const ctl = new TwoController()
@@ -17,7 +18,7 @@ export function SimulatorMap() {
     if (hostRef.current) ctl.mount(hostRef.current)
     ensureSocket()
     const off = onState(({ grid, robots, cellSizeM }) => {
-      console.log(robots[0]!.absolute.rotation_deg)
+      setGrid(grid)
       ctl.draw(grid)
       ctl.syncRobots(robots, cellSizeM)
     })
@@ -25,13 +26,15 @@ export function SimulatorMap() {
       off()
       ctl.destroy()
       setController(null)
+      setGrid(null)
     }
-  }, [setController])
+  }, [setController, setGrid])
 
   return (
-    <div className="flex w-full h-screen select-none" style={{ background: '#ffffff' }}>
+    <div className="flex w-full h-screen select-none" style={{ background: "#ffffff" }}>
       <div className="relative flex-1">
         <div ref={hostRef} className="absolute inset-0" />
+        <ClickOverlay />
       </div>
     </div>
   )

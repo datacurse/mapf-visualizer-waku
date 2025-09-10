@@ -2,12 +2,11 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 import socketio
 import asyncio
-from robot import Robot, Orientation, GridPose, Position, RobotConfig
+from robot import Robot, Orientation, GridPose, Position
 
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=["http://localhost:3000"])
 socket_app = socketio.ASGIApp(sio)
 
-# Robot.config = RobotConfig(cell_size_m=0.5, speed_mps=10.0, rot_speed_dps=360.0)
 CELL_SIZE_M = Robot.config.cell_size_m
 
 grid_width = 14
@@ -69,15 +68,24 @@ async def move(sid, data):
         return
     gx, gy = r.position.grid.x, r.position.grid.y
     if d == "left":
-        nx, ny, o = gx - 1, gy, Orientation.X_LEFT
+        nx, ny = gx - 1, gy
     elif d == "right":
-        nx, ny, o = gx + 1, gy, Orientation.X_RIGHT
+        nx, ny = gx + 1, gy
     elif d == "up":
-        nx, ny, o = gx, gy - 1, Orientation.Y_UP
+        nx, ny = gx, gy - 1
     else:
-        nx, ny, o = gx, gy + 1, Orientation.Y_DOWN
-    if not blocked(nx, ny):
-        r.move(o, 2)
+        nx, ny = gx, gy + 1
+    r.move_to(nx, ny, grid_width, grid_height, blocked)
+
+@sio.event
+async def move_to(sid, data):
+    rid = data.get("id", "r1")
+    tx = int(data.get("x"))
+    ty = int(data.get("y"))
+    r = robots.get(rid)
+    if not r:
+        return
+    r.move_to(tx, ty, grid_width, grid_height, blocked)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
