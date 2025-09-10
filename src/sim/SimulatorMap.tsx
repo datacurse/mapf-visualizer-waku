@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { atom, useSetAtom } from 'jotai'
 import { TwoController } from './TwoController'
-import { onState, ensureSocket } from '../socketClient'
+import { ensureSocket, onState } from './socketClient'
 
 export const mapClass = atom<TwoController | null>(null)
 

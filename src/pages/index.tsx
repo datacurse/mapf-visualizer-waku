@@ -1,8 +1,8 @@
 "use client"
 
 import { Suspense, useEffect } from 'react'
-import { ensureSocket, sendMove } from '../socketClient'
 import { SimulatorMap } from '../sim/SimulatorMap'
+import { ensureSocket, sendMove } from '../sim/socketClient'
 
 export default function HomePage() {
   useEffect(() => { ensureSocket() }, [])

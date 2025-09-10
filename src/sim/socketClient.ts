@@ -1,5 +1,5 @@
 import { io, Socket } from 'socket.io-client'
-import type { Grid } from './sim/types'
+import { Grid } from './types';
 
 type WireGrid = { width: number; height: number; obstacles: number[][] }
 type WireRobot = {
