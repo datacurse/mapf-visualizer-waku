@@ -1,5 +1,7 @@
 import Two from 'two.js'
 import { Group } from 'two.js/src/group'
+import { Path } from 'two.js/src/path'
+import { Anchor } from 'two.js/src/anchor'
 import { ZoomPan } from '../ZoomPan'
 import { drawGrid } from './drawGrid'
 import { Grid } from './types'
@@ -11,8 +13,10 @@ type LayerName = 'map' | 'agents'
 export type Layers = Record<LayerName, Group>
 
 function agentColor(i: number) { return AGENT_COLORS[i % AGENT_COLORS.length]! }
-function cx(x: number) { return x * CELL_SIZE + CELL_SIZE / 2 }
-function cy(y: number) { return y * CELL_SIZE + CELL_SIZE / 2 }
+function cellsFromMeters(v: number, cellSizeM: number) { return v / cellSizeM }
+function pxFromMetersX(xm: number, cellSizeM: number) { return cellsFromMeters(xm, cellSizeM) * CELL_SIZE + CELL_SIZE / 2 }
+function pxFromMetersY(ym: number, cellSizeM: number) { return cellsFromMeters(ym, cellSizeM) * CELL_SIZE + CELL_SIZE / 2 }
+function deg2rad(d: number) { return (d * Math.PI) / 180 }
 
 export class TwoController {
   private two: Two | null = null
@@ -36,7 +40,7 @@ export class TwoController {
     this.zoomer = new ZoomPan(root, host, { minScale: 0.05, maxScale: 20, wheelSpeed: 1 / 1000, panButton: ['left', 'middle'] })
   }
 
-  private gridKey(g: Grid) { return `${g.width}x${g.height}:${[...g.obstacles.keys()].slice(0, 10).join('|')}:${g.obstacles.size}` }
+  private gridKey(g: Grid) { return `${g.width}x${g.height}:${g.obstacles.size}` }
 
   draw(grid: Grid) {
     if (!this.two || !this.root || !this.host) return
@@ -50,7 +54,7 @@ export class TwoController {
     }
   }
 
-  syncRobots(robots: ReadonlyArray<{ id: string; x: number; y: number }>) {
+  syncRobots(robots: ReadonlyArray<{ id: string; grid: { x: number; y: number; rotation: number }; absolute: { x: number; y: number; rotation_deg: number } }>, cellSizeM: number) {
     if (!this.two) return
     const seen = new Set<string>()
     robots.forEach((r, idx) => {
@@ -61,11 +65,19 @@ export class TwoController {
         const body = this.two!.makeCircle(0, 0, CELL_SIZE * 0.3)
         body.fill = agentColor(idx)
         body.noStroke()
-        g.add(body)
+        const tri = new Path([
+          new Anchor(0, -CELL_SIZE * 0.32),
+          new Anchor(-CELL_SIZE * 0.18, CELL_SIZE * 0.18),
+          new Anchor(CELL_SIZE * 0.18, CELL_SIZE * 0.18),
+        ], true)
+        tri.fill = '#ffffff'
+        tri.noStroke()
+        g.add(body, tri)
         this.layers.agents.add(g)
         this.robotShapes.set(r.id, g)
       }
-      g.translation.set(cx(r.x), cy(r.y))
+      g.translation.set(pxFromMetersX(r.absolute.x, cellSizeM), pxFromMetersY(r.absolute.y, cellSizeM))
+      g.rotation = deg2rad(r.absolute.rotation_deg)
     })
     for (const [id, grp] of [...this.robotShapes]) {
       if (!seen.has(id)) {

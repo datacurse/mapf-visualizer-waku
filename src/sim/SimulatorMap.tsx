@@ -10,24 +10,18 @@ export const mapClass = atom<TwoController | null>(null)
 export function SimulatorMap() {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const setController = useSetAtom(mapClass)
-  const ctlRef = useRef<TwoController | null>(null)
-  const drawnRef = useRef(false)
 
   useEffect(() => {
     const ctl = new TwoController()
-    ctlRef.current = ctl
     setController(ctl)
     if (hostRef.current) ctl.mount(hostRef.current)
-    const unsub = onState(({ grid, robots }) => {
-      if (!drawnRef.current) {
-        ctl.draw(grid)
-        drawnRef.current = true
-      }
-      ctl.syncRobots(robots)
-    })
     ensureSocket()
+    const off = onState(({ grid, robots, cellSizeM }) => {
+      ctl.draw(grid)
+      ctl.syncRobots(robots, cellSizeM)
+    })
     return () => {
-      unsub()
+      off()
       ctl.destroy()
       setController(null)
     }

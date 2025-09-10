@@ -2,11 +2,15 @@ import { io, Socket } from 'socket.io-client'
 import type { Grid } from './sim/types'
 
 type WireGrid = { width: number; height: number; obstacles: number[][] }
-type WireRobot = { id: string; x: number; y: number }
-type WireState = { grid: WireGrid; robots: WireRobot[] }
+type WireRobot = {
+  id: string
+  grid: { x: number; y: number; rotation: number }
+  absolute: { x: number; y: number; rotation_deg: number }
+}
+type WireState = { grid: WireGrid; cell_size_m: number; robots: WireRobot[] }
 
 let socket: Socket | null = null
-const listeners = new Set<(state: { grid: Grid; robots: WireRobot[] }) => void>()
+const listeners = new Set<(state: { grid: Grid; robots: WireRobot[]; cellSizeM: number }) => void>()
 
 function toKey(x: number, y: number) { return `(${x}, ${y})` }
 
@@ -21,14 +25,13 @@ export function ensureSocket() {
     socket = io('http://localhost:8000', { transports: ['websocket'] })
     socket.on('game_state', (ws: WireState) => {
       const grid = toGrid(ws.grid)
-      const robots = ws.robots
-      for (const cb of listeners) cb({ grid, robots })
+      for (const cb of listeners) cb({ grid, robots: ws.robots, cellSizeM: ws.cell_size_m })
     })
   }
   return socket
 }
 
-export function onState(cb: (state: { grid: Grid; robots: WireRobot[] }) => void) {
+export function onState(cb: (state: { grid: Grid; robots: WireRobot[]; cellSizeM: number }) => void) {
   listeners.add(cb)
   return () => { listeners.delete(cb) }
 }
