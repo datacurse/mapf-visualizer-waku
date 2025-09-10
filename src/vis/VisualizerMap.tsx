@@ -3,12 +3,12 @@
 
 import { useEffect, useRef } from 'react'
 import { atom, useSetAtom } from 'jotai'
-import { readMap, readSolution } from './Components/read'
-import { MapClass } from './MapClass'
+import { readMap, readSolution } from './read'
+import { CanvasClass } from './CanvasClass'
 
-export const mapClass = atom<MapClass | null>(null)
+export const mapClass = atom<CanvasClass | null>(null)
 
-export function Map() {
+export function VisualizerMap() {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const setController = useSetAtom(mapClass)
 
@@ -16,7 +16,7 @@ export function Map() {
     const initializeMap = async () => {
       const map = await readMap()
       const solution = await readSolution()
-      const ctl = new MapClass()
+      const ctl = new CanvasClass()
       setController(ctl)
       if (hostRef.current) ctl.mount(hostRef.current)
       ctl.draw(map, solution)

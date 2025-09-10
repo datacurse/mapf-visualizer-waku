@@ -1,12 +1,12 @@
-import { Map_ } from "./Map";
+import { MapClass } from "./MapClass";
 import { parseSolution, Solution } from "./Solution";
 
-export async function readMap(): Promise<Map_> {
+export async function readMap(): Promise<MapClass> {
   // const mapFileResponse = await fetch('/maps/2x2.map');
   // const mapFileResponse = await fetch('/maps/random-32-32-20.map');
   const mapFileResponse = await fetch('/maps/sorter-20x14.map');
   const mapFileContent = await mapFileResponse.text();
-  return new Map_(mapFileContent)
+  return new MapClass(mapFileContent)
 }
 
 export async function readSolution(): Promise<Solution> {

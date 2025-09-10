@@ -12,7 +12,7 @@ export class Coordinate {
   }
 }
 
-export class Map_ {
+export class MapClass {
   // Finds width, height and obctacles on the map
   public width: number = 0;
   public height: number = 0;

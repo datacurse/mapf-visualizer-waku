@@ -4,9 +4,9 @@ import { Group } from 'two.js/src/group';
 import { Path } from 'two.js/src/path';
 import { Line } from 'two.js/src/shapes/line';
 import { Anchor } from 'two.js/src/anchor';
-import { orientationToRotation, Orientation, Solution } from './Components/Solution';
-import { drawMap } from './draw/drawMap';
-import { ZoomPan } from './ZoomPan'; // NEW
+import { orientationToRotation, Orientation, Solution } from './Solution';
+import { drawMap } from './drawMap';
+import { ZoomPan } from '../ZoomPan'; // NEW
 
 const CELL_SIZE = 100;
 const AGENT_COLORS = ['#E91E63', '#2196F3', '#4CAF50', '#FF9800', '#00BCD4', '#9C27B0', '#795548', '#FFBB3B', '#F44336', '#607D8B', '#009688', '#3F51B5'] as const;
@@ -27,7 +27,7 @@ type TrailProgress = {
   total: number;   // total path length
 };
 
-export class MapClass {
+export class CanvasClass {
   private two: Two | null = null;
   private root: Group | null = null;
   private host: HTMLElement | null = null;
