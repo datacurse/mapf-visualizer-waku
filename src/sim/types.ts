@@ -8,3 +8,5 @@ export type Grid = {
   height: number
   obstacles: Map<string, boolean>
 }
+
+export type Direction = 'left' | 'right' | 'up' | 'down'

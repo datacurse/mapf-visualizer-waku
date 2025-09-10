@@ -1,5 +1,7 @@
 import { io, Socket } from 'socket.io-client'
+import { notePacket } from './fps'
 import { Grid } from './types';
+import type { Direction } from './types'
 
 type WireGrid = { width: number; height: number; obstacles: number[][] }
 type WireRobot = {
@@ -24,6 +26,7 @@ export function ensureSocket() {
   if (!socket) {
     socket = io('http://localhost:8000', { transports: ['websocket'] })
     socket.on('game_state', (ws: WireState) => {
+      notePacket()
       const grid = toGrid(ws.grid)
       for (const cb of listeners) cb({ grid, robots: ws.robots, cellSizeM: ws.cell_size_m })
     })
@@ -36,6 +39,8 @@ export function onState(cb: (state: { grid: Grid; robots: WireRobot[]; cellSizeM
   return () => { listeners.delete(cb) }
 }
 
-export function sendMove(dir: 'left' | 'right' | 'up' | 'down', id = 'r1') {
+
+export function sendMove(dir: Direction, id = 'r1') {
   ensureSocket().emit('move', { id, dir })
 }
+

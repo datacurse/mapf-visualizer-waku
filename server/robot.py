@@ -2,9 +2,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Tuple, Optional
-import math
-import time
-import tkinter as tk
 
 class Orientation(IntEnum):
     X_RIGHT = 0
@@ -24,11 +21,11 @@ class AbsolutePose:
     y: float
     rotation_deg: float
 
-@dataclass(frozen=True)
+# @dataclass(frozen=True)
 class RobotConfig:
     cell_size_m: float = 0.5
-    speed_mps: float = 0.4
-    rot_speed_dps: float = 180.0
+    speed_mps: float = 10
+    rot_speed_dps: float = 360
 
 def norm_deg(d: float) -> float:
     d = d % 360.0
@@ -150,100 +147,40 @@ class Robot:
                         self._start_translation_to(gx, gy)
                 else:
                     self.set_heading_deg(cur + step)
+
         elif self.state is RobotState.MOVING and self._target_abs is not None:
             tx, ty = self._target_abs
-            x, y = self.position.absolute.x, self.position.absolute.y
-            d = self.linear_speed * dt
-            hx = deg_to_orientation(self.heading_deg())
-            if hx is Orientation.X_RIGHT:
-                nx = min(x + d, tx); ny = y
-            elif hx is Orientation.X_LEFT:
-                nx = max(x - d, tx); ny = y
-            elif hx is Orientation.Y_DOWN:
-                nx = x; ny = min(y + d, ty)
+            x,  y  = self.position.absolute.x, self.position.absolute.y
+            step   = self.linear_speed * dt
+
+            dx = tx - x
+            dy = ty - y
+
+            # We only ever move along one axis for a grid leg; pick the non-zero one.
+            if abs(dx) > 1e-12:
+                move = max(-abs(dx), min(abs(dx), step))  # clamp to remaining distance
+                nx = x + (move if dx >= 0 else -move)
+                ny = y
             else:
-                nx = x; ny = max(y - d, ty)
+                move = max(-abs(dy), min(abs(dy), step))
+                nx = x
+                ny = y + (move if dy >= 0 else -move)
+
+            # keep the current heading for drawing
             self.position.set_absolute(AbsolutePose(nx, ny, self.heading_deg()))
+
+            # snap exactly on arrival (prevents sub-pixel linger)
             if abs(nx - tx) < 1e-9 and abs(ny - ty) < 1e-9:
-                self.position.set_grid(GridPose(self._target_grid[0], self._target_grid[1], deg_to_orientation(self.heading_deg())))
+                self.position.set_absolute(AbsolutePose(tx, ty, self.heading_deg()))
+                self.position.set_grid(
+                    GridPose(self._target_grid[0], self._target_grid[1], deg_to_orientation(self.heading_deg()))
+                )
                 self.linear_speed = 0.0
                 self._target_abs = None
                 self._target_grid = None
                 self._target_heading = None
                 self.state = RobotState.IDLE
 
+
     def idle(self) -> bool:
         return self.state is RobotState.IDLE
-
-class App:
-    def __init__(self, size: int = 3, cell_px: int = 120) -> None:
-        self.size = size
-        self.cell_px = cell_px
-        Robot.config = RobotConfig(cell_size_m=0.5, speed_mps=0.4, rot_speed_dps=180.0)
-        self.robot = Robot()
-        self.root = tk.Tk()
-        self.root.title("Robot Grid")
-        w = size * cell_px
-        h = size * cell_px
-        self.canvas = tk.Canvas(self.root, width=w, height=h, bg="#ffffff", highlightthickness=0)
-        self.canvas.pack()
-        for i in range(size + 1):
-            x = i * cell_px
-            self.canvas.create_line(x, 0, x, h)
-            y = i * cell_px
-            self.canvas.create_line(0, y, w, y)
-        r = int(cell_px * 0.28)
-        cx, cy = self._center_px()
-        self.body = self.canvas.create_oval(cx - r, cy - r, cx + r, cy + r, fill="#2b82ff", outline="")
-        self.head = self.canvas.create_polygon(self._triangle_points(cx, cy, r), fill="#ffffff", outline="")
-        self.last = time.perf_counter()
-        self.lag = 0.0
-        self.step = 1.0 / 60.0
-        self.root.bind("<Up>", lambda e: self.robot.move(Orientation.Y_UP, 1))
-        self.root.bind("<Down>", lambda e: self.robot.move(Orientation.Y_DOWN, 1))
-        self.root.bind("<Left>", lambda e: self.robot.move(Orientation.X_LEFT, 1))
-        self.root.bind("<Right>", lambda e: self.robot.move(Orientation.X_RIGHT, 1))
-        self.root.bind("w", lambda e: self.robot.move(Orientation.Y_UP, 1))
-        self.root.bind("s", lambda e: self.robot.move(Orientation.Y_DOWN, 1))
-        self.root.bind("a", lambda e: self.robot.move(Orientation.X_LEFT, 1))
-        self.root.bind("d", lambda e: self.robot.move(Orientation.X_RIGHT, 1))
-        self.tick()
-
-    def _cells_from_m(self, v: float) -> float:
-        return v / self.robot.config.cell_size_m
-
-    def _center_px(self) -> Tuple[float, float]:
-        x_cells = self._cells_from_m(self.robot.position.absolute.x)
-        y_cells = self._cells_from_m(self.robot.position.absolute.y)
-        px = x_cells * self.cell_px + 0.5 * self.cell_px
-        py = y_cells * self.cell_px + 0.5 * self.cell_px
-        return px, py
-
-    def _triangle_points(self, cx: float, cy: float, r: float):
-        a = math.radians(self.robot.position.absolute.rotation_deg - 90)
-        tip = (cx + r * math.cos(a), cy + r * math.sin(a))
-        b = a + math.radians(140)
-        c = a - math.radians(140)
-        base1 = (cx + r * 0.6 * math.cos(b), cy + r * 0.6 * math.sin(b))
-        base2 = (cx + r * 0.6 * math.cos(c), cy + r * 0.6 * math.sin(c))
-        return (*tip, *base1, *base2)
-
-    def tick(self) -> None:
-        now = time.perf_counter()
-        dt = now - self.last
-        self.last = now
-        self.lag += dt
-        while self.lag >= self.step:
-            self.robot.update(self.step)
-            self.lag -= self.step
-        cx, cy = self._center_px()
-        r = int(self.cell_px * 0.28)
-        self.canvas.coords(self.body, cx - r, cy - r, cx + r, cy + r)
-        self.canvas.coords(self.head, self._triangle_points(cx, cy, r))
-        self.root.after(8, self.tick)
-
-    def run(self) -> None:
-        self.root.mainloop()
-
-if __name__ == "__main__":
-    App(size=3, cell_px=120).run()

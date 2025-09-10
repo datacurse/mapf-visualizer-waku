@@ -7,7 +7,7 @@ from robot import Robot, Orientation, GridPose, Position, RobotConfig
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=["http://localhost:3000"])
 socket_app = socketio.ASGIApp(sio)
 
-Robot.config = RobotConfig(cell_size_m=1.0, speed_mps=3.0, rot_speed_dps=360.0)
+# Robot.config = RobotConfig(cell_size_m=0.5, speed_mps=10.0, rot_speed_dps=360.0)
 CELL_SIZE_M = Robot.config.cell_size_m
 
 grid_width = 14
@@ -49,7 +49,7 @@ def blocked(nx: int, ny: int) -> bool:
     return (ny, nx) in _obstacles
 
 async def state_loop():
-    dt = 1 / 60
+    dt = 0.01
     while True:
         for r in robots.values():
             r.update(dt)
@@ -77,7 +77,7 @@ async def move(sid, data):
     else:
         nx, ny, o = gx, gy + 1, Orientation.Y_DOWN
     if not blocked(nx, ny):
-        r.move(o, 1)
+        r.move(o, 2)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

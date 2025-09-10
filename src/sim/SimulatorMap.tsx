@@ -17,6 +17,7 @@ export function SimulatorMap() {
     if (hostRef.current) ctl.mount(hostRef.current)
     ensureSocket()
     const off = onState(({ grid, robots, cellSizeM }) => {
+      console.log(robots[0]!.absolute.rotation_deg)
       ctl.draw(grid)
       ctl.syncRobots(robots, cellSizeM)
     })

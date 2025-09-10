@@ -5,6 +5,8 @@ import { Anchor } from 'two.js/src/anchor'
 import { ZoomPan } from '../ZoomPan'
 import { drawGrid } from './drawGrid'
 import { Grid } from './types'
+import { renderFpsAtom } from './renderFpsAtom'
+import { getDefaultStore } from 'jotai'
 
 const CELL_SIZE = 100
 const AGENT_COLORS = ['#E91E63', '#2196F3', '#4CAF50', '#FF9800', '#00BCD4', '#9C27B0', '#795548', '#FFBB3B', '#F44336', '#607D8B', '#009688', '#3F51B5'] as const
@@ -27,6 +29,12 @@ export class TwoController {
   private robotShapes = new Map<string, Group>()
   private gridDrawnKey: string | null = null
 
+  // NEW: perf tracking state
+  private unbindUpdate: (() => void) | null = null
+  private frames = 0
+  private elapsedMs = 0
+  private store = getDefaultStore()
+
   mount(host: HTMLElement) {
     this.destroy()
     this.two = new Two({ type: Two.Types.svg, fitted: true, autostart: true }).appendTo(host)
@@ -38,6 +46,20 @@ export class TwoController {
     this.layers = { map: new Group(), agents: new Group() }
     root.add(this.layers.map, this.layers.agents)
     this.zoomer = new ZoomPan(root, host, { minScale: 0.05, maxScale: 20, wheelSpeed: 1 / 1000, panButton: ['left', 'middle'] })
+
+    // NEW: bind render FPS sampler
+    const onUpdate = (_frameCount: number, timeDelta: number) => {
+      this.frames += 1
+      this.elapsedMs += timeDelta
+      if (this.elapsedMs >= 1000) {
+        const fps = (this.frames * 1000) / this.elapsedMs
+        this.store.set(renderFpsAtom, fps)
+        this.frames = 0
+        this.elapsedMs = 0
+      }
+    }
+    this.two.bind('update', onUpdate)
+    this.unbindUpdate = () => this.two?.unbind('update', onUpdate)
   }
 
   private gridKey(g: Grid) { return `${g.width}x${g.height}:${g.obstacles.size}` }
@@ -50,7 +72,6 @@ export class TwoController {
       this.zoomer?.updateOffset()
       this.zoomer?.fitToSurface(grid.width * CELL_SIZE, grid.height * CELL_SIZE, 24)
       this.gridDrawnKey = key
-      this.two.update()
     }
   }
 
@@ -85,10 +106,13 @@ export class TwoController {
         this.robotShapes.delete(id)
       }
     }
-    this.two.update()
   }
 
   destroy() {
+    // NEW: unbind perf sampler
+    this.unbindUpdate?.()
+    this.unbindUpdate = null
+
     this.zoomer?.destroy()
     this.zoomer = null
     if (this.root && this.two) {
