@@ -4,6 +4,7 @@ from enum import IntEnum
 from typing import Tuple, Optional, Callable
 from collections import deque
 import heapq
+import math
 
 class Orientation(IntEnum):
     X_RIGHT = 0
@@ -25,8 +26,12 @@ class AbsolutePose:
 
 class RobotConfig:
     cell_size_m: float = 0.5
-    speed_mps: float = 10
-    rot_speed_dps: float = 360
+    lin_acc_mps2: float = 0.1
+    lin_dec_mps2: float = 1.5
+    lin_max_mps: float = 2.5
+    rot_acc_dps2: float = math.degrees(3.0)
+    rot_dec_dps2: float = math.degrees(3.0)
+    rot_max_dps: float = math.degrees(3.0)
 
 def norm_deg(d: float) -> float:
     d = d % 360.0
@@ -191,7 +196,7 @@ class Robot:
         cw = self._cw_diff(cur, target_deg)
         self._rot_dir = 1 if cw <= 180.0 else -1
         self._target_heading = norm_deg(target_deg)
-        self.rot_speed = self.config.rot_speed_dps
+        self.rot_speed = 0.0
         self.state = RobotState.ROTATING
 
     def _start_translation_to(self, gx: int, gy: int) -> None:
@@ -199,7 +204,7 @@ class Robot:
         tx = gx * self.config.cell_size_m
         ty = gy * self.config.cell_size_m
         self._target_abs = (tx, ty)
-        self.linear_speed = self.config.speed_mps
+        self.linear_speed = 0.0
         self.state = RobotState.MOVING
 
     def _advance_path(self) -> None:
@@ -241,46 +246,55 @@ class Robot:
 
     def update(self, dt: float) -> None:
         if self.state is RobotState.ROTATING and self._target_heading is not None:
-            step = self.rot_speed * dt * self._rot_dir
             cur = self.heading_deg()
             if self._rot_dir == 1:
                 remain = self._cw_diff(cur, self._target_heading)
-                if step >= remain:
-                    self.set_heading_deg(self._target_heading)
-                    if self._target_grid is not None and self._target_abs is None:
-                        gx, gy = self._target_grid
-                        self._start_translation_to(gx, gy)
-                else:
-                    self.set_heading_deg(cur + step)
             else:
                 remain = 360.0 - self._cw_diff(cur, self._target_heading)
-                if -step >= remain:
-                    self.set_heading_deg(self._target_heading)
-                    if self._target_grid is not None and self._target_abs is None:
-                        gx, gy = self._target_grid
-                        self._start_translation_to(gx, gy)
+            stop = (self.rot_speed * self.rot_speed) / (2.0 * self.config.rot_dec_dps2) if self.config.rot_dec_dps2 > 0 else 0.0
+            if remain > stop:
+                self.rot_speed = min(self.config.rot_max_dps, self.rot_speed + self.config.rot_acc_dps2 * dt)
+            else:
+                self.rot_speed = max(0.0, self.rot_speed - self.config.rot_dec_dps2 * dt)
+            step = min(remain, self.rot_speed * dt)
+            self.set_heading_deg(cur + (step if self._rot_dir == 1 else -step))
+            if step >= remain - 1e-12 or remain <= 1e-9:
+                self.set_heading_deg(self._target_heading)
+                if self._target_grid is not None and self._target_abs is None:
+                    gx, gy = self._target_grid
+                    self._start_translation_to(gx, gy)
                 else:
-                    self.set_heading_deg(cur + step)
+                    self.state = RobotState.IDLE
+                self.rot_speed = 0.0
         elif self.state is RobotState.MOVING and self._target_abs is not None:
             tx, ty = self._target_abs
             x, y = self.position.absolute.x, self.position.absolute.y
-            step = self.linear_speed * dt
             dx = tx - x
             dy = ty - y
             if abs(dx) > 1e-12:
-                move = max(-abs(dx), min(abs(dx), step))
-                nx = x + (move if dx >= 0 else -move)
+                remain = abs(dx)
+                stop = (self.linear_speed * self.linear_speed) / (2.0 * self.config.lin_dec_mps2) if self.config.lin_dec_mps2 > 0 else 0.0
+                if remain > stop:
+                    self.linear_speed = min(self.config.lin_max_mps, self.linear_speed + self.config.lin_acc_mps2 * dt)
+                else:
+                    self.linear_speed = max(0.0, self.linear_speed - self.config.lin_dec_mps2 * dt)
+                step = min(remain, self.linear_speed * dt)
+                nx = x + (step if dx >= 0 else -step)
                 ny = y
             else:
-                move = max(-abs(dy), min(abs(dy), step))
+                remain = abs(dy)
+                stop = (self.linear_speed * self.linear_speed) / (2.0 * self.config.lin_dec_mps2) if self.config.lin_dec_mps2 > 0 else 0.0
+                if remain > stop:
+                    self.linear_speed = min(self.config.lin_max_mps, self.linear_speed + self.config.lin_acc_mps2 * dt)
+                else:
+                    self.linear_speed = max(0.0, self.linear_speed - self.config.lin_dec_mps2 * dt)
+                step = min(remain, self.linear_speed * dt)
                 nx = x
-                ny = y + (move if dy >= 0 else -move)
+                ny = y + (step if dy >= 0 else -step)
             self.position.set_absolute(AbsolutePose(nx, ny, self.heading_deg()))
             if abs(nx - tx) < 1e-9 and abs(ny - ty) < 1e-9:
                 self.position.set_absolute(AbsolutePose(tx, ty, self.heading_deg()))
-                self.position.set_grid(
-                    GridPose(self._target_grid[0], self._target_grid[1], deg_to_orientation(self.heading_deg()))
-                )
+                self.position.set_grid(GridPose(self._target_grid[0], self._target_grid[1], deg_to_orientation(self.heading_deg())))
                 self.linear_speed = 0.0
                 self._target_abs = None
                 self._target_grid = None
