@@ -26,9 +26,9 @@ class AbsolutePose:
 
 class RobotConfig:
     cell_size_m: float = 0.5
-    lin_acc_mps2: float = 1
+    lin_acc_mps2: float = 2.5
     lin_dec_mps2: float = 1.5
-    lin_max_mps: float = 2.5
+    lin_max_mps: float = 2
     rot_acc_dps2: float = math.degrees(3.0)
     rot_dec_dps2: float = math.degrees(3.0)
     rot_max_dps: float = math.degrees(3.0)
