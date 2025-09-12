@@ -1,29 +1,27 @@
-// src/sim/socketClient.ts
 "use client"
 
 import { io, Socket } from "socket.io-client"
 
-type GameState = {
+export type GameState = {
   grid: { width: number; height: number; obstacles: [number, number][] }
-  cell_size_m: number
+  cellSizeM: number
   robots: {
     id: string
     grid: { x: number; y: number; rotation: number }
-    absolute: { x: number; y: number; rotation_deg: number }
+    absolute: { x: number; y: number; rotationDeg: number }
   }[]
 }
 
 let socket: Socket | null = null
-type Listener = (s: { grid: { width: number; height: number; obstacles: Set<string> }; robots: GameState["robots"]; cellSizeM: number }) => void
+
+type Listener = (s: GameState) => void
 const listeners = new Set<Listener>()
 
 export function ensureSocket() {
   if (socket) return socket
   socket = io("http://localhost:8000", { transports: ["websocket"] })
   socket.on("game_state", (s: GameState) => {
-    const obstacles = new Set(s.grid.obstacles.map(([x, y]) => `${x},${y}`))
-    const payload = { grid: { width: s.grid.width, height: s.grid.height, obstacles }, robots: s.robots, cellSizeM: s.cell_size_m }
-    listeners.forEach(fn => fn(payload))
+    listeners.forEach(fn => fn(s))
   })
   return socket
 }

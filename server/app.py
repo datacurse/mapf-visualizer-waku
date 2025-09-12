@@ -23,7 +23,7 @@ def current_state():
             "height": grid_height,
             "obstacles": [[x, y] for (y, x) in sorted(_obstacles)],
         },
-        "cell_size_m": CELL_SIZE_M,
+        "cellSizeM": CELL_SIZE_M,
         "robots": [
             {
                 "id": rid,
@@ -35,7 +35,7 @@ def current_state():
                 "absolute": {
                     "x": r.position.absolute.x,
                     "y": r.position.absolute.y,
-                    "rotation_deg": r.position.absolute.rotation_deg,
+                    "rotationDeg": r.position.absolute.rotation_deg,
                 },
             }
             for rid, r in robots.items()

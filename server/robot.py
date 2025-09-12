@@ -182,6 +182,29 @@ class Robot:
         self._rot_dir = 0
         self._path: deque[Tuple[int, int]] = deque()
 
+    def move_to(self, gx: int, gy: int, grid_w: int, grid_h: int, blocked: Callable[[int, int], bool]) -> bool:
+        # Reject command if busy
+        if not self.idle():
+            return False
+        # Already on this place
+        sx, sy = self.position.grid.x, self.position.grid.y
+        if (sx, sy) == (gx, gy):
+            return True
+        # Check L shaped path
+        l = plan_l_path(sx, sy, gx, gy, blocked)
+        if l is not None:
+            self._path = l
+            self._advance_path()
+            return True
+        # No L shaped path
+        start_dir = int(deg_to_orientation(self.heading_deg()))
+        segs = plan_min_turn_path(sx, sy, start_dir, gx, gy, grid_w, grid_h, blocked)
+        if segs is None:
+            return False
+        self._path = segs
+        self._advance_path()
+        return True
+
     def heading_deg(self) -> float:
         return self.position.absolute.rotation_deg
 
@@ -225,24 +248,7 @@ class Robot:
         self._target_abs = None
         self._start_rotation_to(orientation_to_deg(o))
 
-    def move_to(self, gx: int, gy: int, grid_w: int, grid_h: int, blocked: Callable[[int, int], bool]) -> bool:
-        if not self.idle():
-            return False
-        sx, sy = self.position.grid.x, self.position.grid.y
-        if (sx, sy) == (gx, gy):
-            return True
-        l = plan_l_path(sx, sy, gx, gy, blocked)
-        if l is not None:
-            self._path = l
-            self._advance_path()
-            return True
-        start_dir = int(deg_to_orientation(self.heading_deg()))
-        segs = plan_min_turn_path(sx, sy, start_dir, gx, gy, grid_w, grid_h, blocked)
-        if segs is None:
-            return False
-        self._path = segs
-        self._advance_path()
-        return True
+
 
     def update(self, dt: float) -> None:
         if self.state is RobotState.ROTATING and self._target_heading is not None:
