@@ -118,6 +118,11 @@ class Reservations {
   }
 }
 
+interface Fragment {
+  agents: number[];
+  indexes: number[];
+}
+
 class Agent {
   id: number;
   grid: Grid;
@@ -247,15 +252,27 @@ export class TwoController {
   private unbindUpdate: (() => void) | null = null;
   private s: number = 100;
   private speedMultiplier: number = 10;
+  private numAgents: number;
+
+  private colors: string[] = [
+    "#FF5A5A", "#4A90E2", "#50E3C2", "#F5A623", "#7B1FA2",
+    "#C2185B", "#009688", "#8BC34A", "#FFC107", "#795548",
+    "#9E9E9E", "#607D8B", "#E91E63", "#3F51B5", "#00BCD4",
+    "#CDDC39", "#FF9800", "#673AB7", "#2196F3", "#4CAF50"
+  ];
+
+  constructor(numAgents: number = 4) {
+    this.numAgents = numAgents;
+  }
 
   mount(host: HTMLElement) {
     this.destroy();
     this.two = new Two({ type: Two.Types.svg, fitted: true, autostart: true }).appendTo(host);
 
     const two = this.two!;
-
     this.grid = new Grid(7, 7);
     this.res = new Reservations();
+
     const baseKin = {
       vmax: 1.6,
       a: 1.2,
@@ -264,22 +281,29 @@ export class TwoController {
       nodeRadius: 0.001,
       headingTol: 0.03,
     };
-    const kins = [
-      { ...baseKin, vmax: 1.0 },
-      { ...baseKin, vmax: 1.4 },
-      { ...baseKin, vmax: 1.8 },
-      { ...baseKin, vmax: 2.2 },
-    ];
-    const aPath = [this.grid.id(0, 3), this.grid.id(1, 3), this.grid.id(2, 3), this.grid.id(3, 3), this.grid.id(4, 3), this.grid.id(5, 3), this.grid.id(6, 3)];
-    const bPath = [this.grid.id(3, 0), this.grid.id(3, 1), this.grid.id(3, 2), this.grid.id(3, 3), this.grid.id(3, 4), this.grid.id(3, 5), this.grid.id(3, 6)];
-    const cPath = [this.grid.id(0, 0), this.grid.id(1, 0), this.grid.id(2, 0), this.grid.id(3, 0), this.grid.id(4, 0), this.grid.id(5, 0), this.grid.id(6, 0)];
-    const dPath = [this.grid.id(6, 6), this.grid.id(5, 6), this.grid.id(4, 6), this.grid.id(3, 6), this.grid.id(2, 6), this.grid.id(1, 6), this.grid.id(0, 6)];
-    this.agents = [
-      new Agent(0, this.grid, this.res, aPath, kins[0], "#FF5A5A", two),
-      new Agent(1, this.grid, this.res, bPath, kins[1], "#4A90E2", two),
-      new Agent(2, this.grid, this.res, cPath, kins[2], "#50E3C2", two),
-      new Agent(3, this.grid, this.res, dPath, kins[3], "#F5A623", two),
-    ];
+
+    // pick unique random start cells
+    const allIds = Array.from({ length: this.grid.w * this.grid.h }, (_, i) => i);
+    const shuffled = shuffle(allIds);
+    const starts = shuffled.slice(0, this.numAgents);
+    const goals = shuffled.slice(this.numAgents, this.numAgents * 2);
+
+    let paths = null;
+    let attempts = 0;
+    const maxAttempts = 100;
+    while (!paths && attempts < maxAttempts) {
+      paths = this.computePaths(starts, goals);
+      attempts++;
+    } this.agents = [];
+    if (paths) {
+      for (let i = 0; i < this.numAgents; i++) {
+        const kin = { ...baseKin }; // copy so each agent has its own
+        const color = this.colors[i % this.colors.length];
+        this.agents.push(new Agent(i, this.grid, this.res, paths[i], kin, color, two));
+      }
+    } else {
+      console.error("Failed to find paths after max attempts");
+    }
 
     this.world = this.two.makeGroup();
     this.gridLayer = this.two.makeGroup();
@@ -296,6 +320,142 @@ export class TwoController {
     const onUpdate = () => this.update();
     this.two.bind("update", onUpdate);
     this.unbindUpdate = () => this.two?.unbind("update", onUpdate);
+  }
+
+
+  private computePaths(starts: number[], goals: number[]): number[][] | null {
+    const agentCount = starts.length;
+    const order = shuffle(Array.from({ length: agentCount }, (_, i) => i));
+    const paths: (number[] | undefined)[] = new Array(agentCount);
+    const thetaS = new Map<number, Fragment[]>();
+    const thetaT = new Map<number, Fragment[]>();
+    for (const idx of order) {
+      const forbiddenVerts = new Set<number>();
+      for (let k = 0; k < agentCount; k++) {
+        if (k !== idx && starts[idx] !== goals[k]) forbiddenVerts.add(goals[k]);
+      }
+      const forbiddenEdges = new Set<string>();
+      for (const [u, fragments] of thetaT.entries()) {
+        for (const theta of fragments || []) {
+          const firstA = theta.agents[0];
+          const firstI = theta.indexes[0];
+          const v = paths[firstA]![firstI];
+          forbiddenEdges.add(`${u}->${v}`);
+        }
+      }
+      const path = this.findConstrainedPath(starts[idx], goals[idx], forbiddenVerts, forbiddenEdges);
+      if (!path) return null;
+      paths[idx] = path;
+      if (!this.addPathToFragments(thetaS, thetaT, idx, path, paths as number[][])) {
+        return null;
+      }
+    }
+    return paths as number[][];
+  }
+
+  private findConstrainedPath(start: number, goal: number, forbiddenVerts: Set<number>, forbiddenEdges: Set<string>): number[] | null {
+    if (!this.grid) return null;
+    const queue: number[] = [start];
+    const visited = new Set([start]);
+    const parent = new Map<number, number>();
+    parent.set(start, -1);
+    let found = false;
+    while (queue.length > 0) {
+      const curr = queue.shift()!;
+      if (curr === goal) {
+        found = true;
+        break;
+      }
+      for (const neigh of this.grid.neighbors(curr)) {
+        if (visited.has(neigh)) continue;
+        if (forbiddenVerts.has(neigh) && neigh !== goal) continue;
+        const edgeKey = `${curr}->${neigh}`;
+        if (forbiddenEdges.has(edgeKey)) continue;
+        visited.add(neigh);
+        parent.set(neigh, curr);
+        queue.push(neigh);
+      }
+    }
+    if (!found) return null;
+    const path: number[] = [];
+    let curr: number | undefined = goal;
+    while (curr !== undefined && curr !== -1) {
+      path.push(curr);
+      curr = parent.get(curr);
+    }
+    path.reverse();
+    return path;
+  }
+
+  private addPathToFragments(
+    thetaS: Map<number, Fragment[]>,
+    thetaT: Map<number, Fragment[]>,
+    agentId: number,
+    path: number[],
+    allPaths: number[][]
+  ): boolean {
+    for (let jj = 0; jj < path.length - 1; jj++) {
+      const u = path[jj];
+      const v = path[jj + 1];
+      const theta: Fragment = { agents: [agentId], indexes: [jj] };
+      this.registerFragment(thetaS, thetaT, theta, allPaths);
+      for (const thetat of thetaT.get(u) || []) {
+        if (thetat.agents.includes(agentId)) continue;
+        const newAgents = [...thetat.agents, agentId];
+        const newIndexes = [...thetat.indexes, jj];
+        const newTheta: Fragment = { agents: newAgents, indexes: newIndexes };
+        if (this.isPotentialDeadlock(newTheta, allPaths)) return false;
+        this.registerFragment(thetaS, thetaT, newTheta, allPaths);
+      }
+      for (const thetaf of thetaS.get(v) || []) {
+        if (thetaf.agents.includes(agentId)) continue;
+        const newAgents = [agentId, ...thetaf.agents];
+        const newIndexes = [jj, ...thetaf.indexes];
+        const newTheta: Fragment = { agents: newAgents, indexes: newIndexes };
+        if (this.isPotentialDeadlock(newTheta, allPaths)) return false;
+        this.registerFragment(thetaS, thetaT, newTheta, allPaths);
+      }
+      for (const thetat of thetaT.get(u) || []) {
+        for (const thetaf of thetaS.get(v) || []) {
+          if (thetat.agents.includes(agentId) || thetaf.agents.includes(agentId)) continue;
+          if (thetat.agents.some((a) => thetaf.agents.includes(a))) continue;
+          const newAgents = [...thetat.agents, agentId, ...thetaf.agents];
+          const newIndexes = [...thetat.indexes, jj, ...thetaf.indexes];
+          const newTheta: Fragment = { agents: newAgents, indexes: newIndexes };
+          if (this.isPotentialDeadlock(newTheta, allPaths)) return false;
+          this.registerFragment(thetaS, thetaT, newTheta, allPaths);
+        }
+      }
+    }
+    return true;
+  }
+
+  private registerFragment(
+    thetaS: Map<number, Fragment[]>,
+    thetaT: Map<number, Fragment[]>,
+    theta: Fragment,
+    allPaths: number[][]
+  ) {
+    const firstA = theta.agents[0];
+    const firstI = theta.indexes[0];
+    const start = allPaths[firstA][firstI];
+    const lastA = theta.agents[theta.agents.length - 1];
+    const lastI = theta.indexes[theta.indexes.length - 1];
+    const end = allPaths[lastA][lastI + 1];
+    if (!thetaS.has(start)) thetaS.set(start, []);
+    thetaS.get(start)!.push(theta);
+    if (!thetaT.has(end)) thetaT.set(end, []);
+    thetaT.get(end)!.push(theta);
+  }
+
+  private isPotentialDeadlock(theta: Fragment, allPaths: number[][]): boolean {
+    const firstA = theta.agents[0];
+    const firstI = theta.indexes[0];
+    const start = allPaths[firstA][firstI];
+    const lastA = theta.agents[theta.agents.length - 1];
+    const lastI = theta.indexes[theta.indexes.length - 1];
+    const lastNext = allPaths[lastA][lastI + 1];
+    return start === lastNext;
   }
 
   private drawGrid() {
@@ -339,7 +499,7 @@ export class TwoController {
   }
 
   private update() {
-    if (!this.two) return;
+    if (!this.two || !this.grid) return;
     const now = performance.now();
     let dt = (now - this.lastTime) / 1000;
     this.lastTime = now;
@@ -349,19 +509,23 @@ export class TwoController {
     const allDone = this.agents.every((a) => a.done());
     if (allDone) {
       const occupied = new Set(this.agents.map((a) => a.from));
-      const allIds = Array.from({ length: this.grid!.w * this.grid!.h }, (_, i) => i);
+      const allIds = Array.from({ length: this.grid.w * this.grid.h }, (_, i) => i);
       const available = allIds.filter((id) => !occupied.has(id));
       shuffle(available);
-      this.agents.forEach((a, i) => {
-        const goal = available[i];
-        const path = this.grid!.findPath(a.from, goal);
-        if (path) {
-          a.path = path;
+      const goals: number[] = [];
+      for (let i = 0; i < this.agents.length; i++) {
+        goals.push(available[i]);
+      }
+      const starts = this.agents.map((a) => a.from);
+      const newPaths = this.computePaths(starts, goals);
+      if (newPaths) {
+        this.agents.forEach((a, i) => {
+          a.path = newPaths[i];
           a.idx = 0;
           a.to = null;
           a.state = "contracted";
-        }
-      });
+        });
+      }
     }
     this.pathLayer.remove(this.pathLayer.children);
     for (const a of this.agents) {

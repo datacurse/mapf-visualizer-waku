@@ -7,7 +7,7 @@ export function TwoCanvas() {
   const hostRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    const ctl = new TwoController()
+    const ctl = new TwoController(10); // 8 robots, colors from palette
     if (hostRef.current) ctl.mount(hostRef.current)
     return () => ctl.destroy()
   }, [])
