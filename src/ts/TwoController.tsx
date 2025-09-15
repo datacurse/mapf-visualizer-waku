@@ -132,7 +132,8 @@ class Agent {
   kin: { vmax: number; a: number; d: number; rotRate: number; nodeRadius: number; headingTol: number };
   state: "contracted" | "extended";
   g: any;
-  size = 60; // Matches drawRobot size from draw.ts
+  size = 60;
+  color: string;
 
   constructor(id: number, grid: Grid, res: Reservations, path: number[], kin: any, color: string, two: Two) {
     this.id = id;
@@ -147,6 +148,7 @@ class Agent {
     this.v = 0;
     this.kin = kin;
     this.state = "contracted";
+    this.color = color;
     this.res.occupyVertex(this.id, this.from);
     this.g = drawRobot(two, this.pos.x * 100, this.pos.y * 100, this.size, color, String(id));
   }
@@ -163,7 +165,7 @@ class Agent {
     this.to = vNext;
     this.state = "extended";
   }
-  step(dt: number) {
+  step(dt: number, multiplier: number) {
     if (this.done()) return;
     if (this.state === "contracted") {
       this.tryStartMove();
@@ -185,18 +187,18 @@ class Agent {
     }
     const needHeading = Math.atan2(dir.y, dir.x);
     const dh = angleDiff(needHeading, this.heading);
-    const maxTurn = this.kin.rotRate * dt;
+    const maxTurn = this.kin.rotRate * multiplier * dt;
     if (Math.abs(dh) > this.kin.headingTol) {
       this.heading += Math.sign(dh) * Math.min(Math.abs(dh), maxTurn);
       this.v = 0;
       return;
     }
     this.heading = needHeading;
-    const braking = (this.v * this.v) / (2 * this.kin.d);
+    const braking = (this.v * this.v) / (2 * this.kin.d * multiplier);
     if (this.v > 0 && dist <= braking) {
-      this.v = Math.max(0, this.v - this.kin.d * dt);
+      this.v = Math.max(0, this.v - this.kin.d * multiplier * dt);
     } else {
-      this.v = Math.min(this.kin.vmax, this.v + this.kin.a * dt);
+      this.v = Math.min(this.kin.vmax * multiplier, this.v + this.kin.a * multiplier * dt);
     }
     const forward = vec(Math.cos(this.heading), Math.sin(this.heading));
     const ds = this.v * dt;
@@ -239,19 +241,21 @@ export class TwoController {
   private world: any = null;
   private gridLayer: any = null;
   private nodeLayer: any = null;
+  private pathLayer: any = null;
   private agentLayer: any = null;
   private lastTime: number = 0;
   private unbindUpdate: (() => void) | null = null;
   private s: number = 100;
+  private speedMultiplier: number = 10;
 
   mount(host: HTMLElement) {
-    this.destroy()
-    this.two = new Two({ type: Two.Types.svg, fitted: true, autostart: true }).appendTo(host)
+    this.destroy();
+    this.two = new Two({ type: Two.Types.svg, fitted: true, autostart: true }).appendTo(host);
 
-    const two = this.two!
+    const two = this.two!;
 
-    this.grid = new Grid(7, 7)
-    this.res = new Reservations()
+    this.grid = new Grid(7, 7);
+    this.res = new Reservations();
     const baseKin = {
       vmax: 1.6,
       a: 1.2,
@@ -259,40 +263,40 @@ export class TwoController {
       rotRate: Math.PI,
       nodeRadius: 0.001,
       headingTol: 0.03,
-    }
+    };
     const kins = [
       { ...baseKin, vmax: 1.0 },
       { ...baseKin, vmax: 1.4 },
       { ...baseKin, vmax: 1.8 },
       { ...baseKin, vmax: 2.2 },
-    ]
-    const aPath = [this.grid.id(0, 3), this.grid.id(1, 3), this.grid.id(2, 3), this.grid.id(3, 3), this.grid.id(4, 3), this.grid.id(5, 3), this.grid.id(6, 3)]
-    const bPath = [this.grid.id(3, 0), this.grid.id(3, 1), this.grid.id(3, 2), this.grid.id(3, 3), this.grid.id(3, 4), this.grid.id(3, 5), this.grid.id(3, 6)]
-    const cPath = [this.grid.id(0, 0), this.grid.id(1, 0), this.grid.id(2, 0), this.grid.id(3, 0), this.grid.id(4, 0), this.grid.id(5, 0), this.grid.id(6, 0)]
-    const dPath = [this.grid.id(6, 6), this.grid.id(5, 6), this.grid.id(4, 6), this.grid.id(3, 6), this.grid.id(2, 6), this.grid.id(1, 6), this.grid.id(0, 6)]
+    ];
+    const aPath = [this.grid.id(0, 3), this.grid.id(1, 3), this.grid.id(2, 3), this.grid.id(3, 3), this.grid.id(4, 3), this.grid.id(5, 3), this.grid.id(6, 3)];
+    const bPath = [this.grid.id(3, 0), this.grid.id(3, 1), this.grid.id(3, 2), this.grid.id(3, 3), this.grid.id(3, 4), this.grid.id(3, 5), this.grid.id(3, 6)];
+    const cPath = [this.grid.id(0, 0), this.grid.id(1, 0), this.grid.id(2, 0), this.grid.id(3, 0), this.grid.id(4, 0), this.grid.id(5, 0), this.grid.id(6, 0)];
+    const dPath = [this.grid.id(6, 6), this.grid.id(5, 6), this.grid.id(4, 6), this.grid.id(3, 6), this.grid.id(2, 6), this.grid.id(1, 6), this.grid.id(0, 6)];
     this.agents = [
       new Agent(0, this.grid, this.res, aPath, kins[0], "#FF5A5A", two),
       new Agent(1, this.grid, this.res, bPath, kins[1], "#4A90E2", two),
       new Agent(2, this.grid, this.res, cPath, kins[2], "#50E3C2", two),
       new Agent(3, this.grid, this.res, dPath, kins[3], "#F5A623", two),
-    ]
+    ];
 
-    this.world = this.two.makeGroup()
-    this.gridLayer = this.two.makeGroup()
-    this.nodeLayer = this.two.makeGroup()
-    this.agentLayer = this.two.makeGroup()
-    this.world.add(this.gridLayer, this.nodeLayer, this.agentLayer)
-    this.agents.forEach((a) => this.agentLayer.add(a.g))
+    this.world = this.two.makeGroup();
+    this.gridLayer = this.two.makeGroup();
+    this.nodeLayer = this.two.makeGroup();
+    this.pathLayer = this.two.makeGroup();
+    this.agentLayer = this.two.makeGroup();
+    this.world.add(this.gridLayer, this.nodeLayer, this.pathLayer, this.agentLayer);
+    this.agents.forEach((a) => this.agentLayer.add(a.g));
 
-    this.drawGrid()
-    this.layout()
+    this.drawGrid();
+    this.layout();
 
-    this.lastTime = performance.now()
-    const onUpdate = () => this.update()
-    this.two.bind("update", onUpdate)
-    this.unbindUpdate = () => this.two?.unbind("update", onUpdate)
+    this.lastTime = performance.now();
+    const onUpdate = () => this.update();
+    this.two.bind("update", onUpdate);
+    this.unbindUpdate = () => this.two?.unbind("update", onUpdate);
   }
-
 
   private drawGrid() {
     if (!this.two || !this.grid) return;
@@ -341,7 +345,7 @@ export class TwoController {
     this.lastTime = now;
     dt = Math.min(0.05, dt);
     const order = shuffle([...this.agents]);
-    for (const a of order) a.step(dt);
+    for (const a of order) a.step(dt, this.speedMultiplier);
     const allDone = this.agents.every((a) => a.done());
     if (allDone) {
       const occupied = new Set(this.agents.map((a) => a.from));
@@ -359,6 +363,28 @@ export class TwoController {
         }
       });
     }
+    this.pathLayer.remove(this.pathLayer.children);
+    for (const a of this.agents) {
+      const remainingPath = a.path.slice(a.idx);
+      if (remainingPath.length < 2) continue;
+      for (let i = 0; i < remainingPath.length - 1; i++) {
+        const u = remainingPath[i];
+        const v = remainingPath[i + 1];
+        const pu = this.grid!.pos(u);
+        const pv = this.grid!.pos(v);
+        const line = this.two.makeLine(pu.x * this.s, pu.y * this.s, pv.x * this.s, pv.y * this.s);
+        line.stroke = a.color;
+        line.linewidth = 3;
+        this.pathLayer.add(line);
+      }
+      const goalId = a.path[a.path.length - 1];
+      const goalPos = this.grid!.pos(goalId);
+      const goalCircle = this.two.makeCircle(goalPos.x * this.s, goalPos.y * this.s, 8);
+      goalCircle.fill = 'transparent';
+      goalCircle.stroke = a.color;
+      goalCircle.linewidth = 2;
+      this.pathLayer.add(goalCircle);
+    }
     for (const a of this.agents) a.draw(this.s);
   }
 
@@ -374,6 +400,7 @@ export class TwoController {
     this.world = null;
     this.gridLayer = null;
     this.nodeLayer = null;
+    this.pathLayer = null;
     this.agentLayer = null;
   }
 }
