@@ -1,78 +1,98 @@
-from fastapi import FastAPI
+# server/app.py
+from __future__ import annotations
+import contextlib
+from pathlib import Path
 from contextlib import asynccontextmanager
-import socketio
 import asyncio
-from robot import Robot, Orientation, GridPose, Position
+import socketio
+from fastapi import FastAPI
 
-sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=["http://localhost:3000"])
-socket_app = socketio.ASGIApp(sio)
+from server.destination_bin import DestinationBin
+from server.hivemind import Hivemind
+from server.robot import Robot, Orientation, GridPose, Position
+from server.map_reader import Grid, get_grid
 
-CELL_SIZE_M = Robot.config.cell_size_m
+def create_app():
+    sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=["http://localhost:3000"])
+    app = FastAPI()
 
-grid_width = 14
-grid_height = 20
-_obstacles = {(1, 1), (1, 2), (3, 5), (6, 10), (10, 7), (12, 3)}
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        CELL_SIZE_M = Robot.config.cell_size_m
+        root = Path(__file__).resolve().parents[1] / "public"
+        grid: Grid = get_grid(str(root / "maps" / "sorter-20x14.map"))
 
-robots: dict[str, Robot] = {}
-robots["r1"] = Robot(Position.from_grid(GridPose(2, 2, Orientation.X_RIGHT), CELL_SIZE_M))
+        robots: dict[str, Robot] = {
+            "r1": Robot(Position.from_grid(GridPose(3, 10, Orientation.X_RIGHT), CELL_SIZE_M)),
+            "r2": Robot(Position.from_grid(GridPose(1, 10, Orientation.X_RIGHT), CELL_SIZE_M))
+        }
 
-def current_state():
-    return {
-        "grid": {
-            "width": grid_width,
-            "height": grid_height,
-            "obstacles": [[x, y] for (y, x) in sorted(_obstacles)],
-        },
-        "cellSizeM": CELL_SIZE_M,
-        "robots": [
-            {
-                "id": rid,
-                "grid": {
-                    "x": r.position.grid.x,
-                    "y": r.position.grid.y,
-                    "rotation": int(r.position.grid.rotation),
-                },
-                "absolute": {
-                    "x": r.position.absolute.x,
-                    "y": r.position.absolute.y,
-                    "rotationDeg": r.position.absolute.rotation_deg,
-                },
+        obs = set(map(tuple, grid["obstacles"]))
+        def blocked(nx: int, ny: int) -> bool:
+            if nx < 0 or ny < 0 or nx >= grid["width"] or ny >= grid["height"]:
+                return True
+            return (nx, ny) in obs
+
+        base_xy = (robots["r1"].position.grid.x, robots["r1"].position.grid.y)
+
+        destination_bins = [
+            DestinationBin(1, 8, 10),
+            DestinationBin(2, 6, 10),
+        ]
+
+        hivemind = Hivemind(robots, grid, blocked, base_xy, destination_bins, seed=0)
+
+        def current_state():
+            return {
+                "grid": grid,
+                "cellSizeM": CELL_SIZE_M,
+                "base": {"x": base_xy[0], "y": base_xy[1]},
+                "destinationBins": [
+                    {"id": b.id, "x": b.x, "y": b.y, "capacity": b.capacity, "items": list(b.items)}
+                    for b in destination_bins
+                ],
+                "robots": [
+                    {
+                        "id": rid,
+                        "grid": {
+                            "x": r.position.grid.x,
+                            "y": r.position.grid.y,
+                            "rotation": int(r.position.grid.rotation),
+                        },
+                        "absolute": {
+                            "x": r.position.absolute.x,
+                            "y": r.position.absolute.y,
+                            "rotationDeg": r.position.absolute.rotation_deg,
+                        },
+                        "path": r.path,
+                    }
+                    for rid, r in robots.items()
+                ],
             }
-            for rid, r in robots.items()
-        ],
-    }
 
-def blocked(nx: int, ny: int) -> bool:
-    if nx < 0 or ny < 0 or nx >= grid_width or ny >= grid_height:
-        return True
-    return (ny, nx) in _obstacles
+        async def state_loop():
+            dt = 0.01
+            try:
+                while True:
+                    for r in robots.values(): r.update(dt)
+                    hivemind.step()
+                    await sio.emit("game_state", current_state())
+                    await asyncio.sleep(dt)
+            except asyncio.CancelledError:
+                pass
 
-async def state_loop():
-    dt = 0.01
-    while True:
-        for r in robots.values():
-            r.update(dt)
-        await sio.emit("game_state", current_state())
-        await asyncio.sleep(dt)
+        @sio.event
+        async def connect(sid, environ, auth):
+            print("bins now:", [(b.id, b.x, b.y) for b in destination_bins])
+            await sio.emit("game_state", current_state(), to=sid)
 
-@sio.event
-async def connect(sid, environ, auth):
-    await sio.emit("game_state", current_state(), to=sid)
+        task = sio.start_background_task(state_loop)
+        try:
+            yield
+        finally:
+            task.cancel()
+            with contextlib.suppress(Exception):
+                await task
 
-@sio.event
-async def move_to(sid, data):
-    rid = data.get("id", "r1")
-    tx = int(data.get("x"))
-    ty = int(data.get("y"))
-    r = robots.get(rid)
-    if not r:
-        return
-    r.move_to(tx, ty, grid_width, grid_height, blocked)
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    sio.start_background_task(state_loop)
-    yield
-
-app = FastAPI(lifespan=lifespan)
-app.mount("/", socket_app)
+    app.router.lifespan_context = lifespan
+    return socketio.ASGIApp(sio, other_asgi_app=app)

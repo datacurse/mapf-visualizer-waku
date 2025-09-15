@@ -17,10 +17,11 @@ export function SimulatorMap() {
     setController(ctl)
     if (hostRef.current) ctl.mount(hostRef.current)
     ensureSocket()
-    const off = onState(({ grid, robots, cellSizeM }) => {
-      setGrid(grid)
-      ctl.draw(grid)
-      ctl.syncRobots(robots, cellSizeM)
+    const off = onState((s) => {
+      console.log(s)
+      setGrid(s.grid)
+      ctl.draw(s)
+      ctl.syncRobots(s.robots, s.cellSizeM)
     })
     return () => {
       off()

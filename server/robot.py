@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Tuple, Optional, Callable
+from typing import Tuple, Optional, Callable, Deque
 from collections import deque
 import heapq
 import math
@@ -11,6 +11,9 @@ class Orientation(IntEnum):
     Y_DOWN = 1
     X_LEFT = 2
     Y_UP = 3
+
+type Cell = tuple[int, int]
+type Path = list[Cell]
 
 @dataclass(frozen=True)
 class GridPose:
@@ -24,14 +27,15 @@ class AbsolutePose:
     y: float
     rotation_deg: float
 
+speed_modificator = 1
 class RobotConfig:
     cell_size_m: float = 0.5
-    lin_acc_mps2: float = 2.5
-    lin_dec_mps2: float = 1.5
-    lin_max_mps: float = 2
-    rot_acc_dps2: float = math.degrees(3.0)
-    rot_dec_dps2: float = math.degrees(3.0)
-    rot_max_dps: float = math.degrees(3.0)
+    lin_acc_mps2: float = 2.5 * speed_modificator
+    lin_dec_mps2: float = 1.5 * speed_modificator
+    lin_max_mps: float = 2 * speed_modificator
+    rot_acc_dps2: float = math.degrees(3.0) * speed_modificator
+    rot_dec_dps2: float = math.degrees(3.0) * speed_modificator
+    rot_max_dps: float = math.degrees(3.0) * speed_modificator
 
 def norm_deg(d: float) -> float:
     d = d % 360.0
@@ -89,20 +93,20 @@ def is_clear_line(x1: int, y1: int, x2: int, y2: int, blocked: Callable[[int, in
             return False
     return True
 
-def plan_l_path(sx: int, sy: int, gx: int, gy: int, blocked: Callable[[int, int], bool]) -> Optional[deque[Tuple[int, int]]]:
+def plan_l_path(sx: int, sy: int, gx: int, gy: int, blocked: Callable[[int, int], bool]) -> Optional[Path]:
     if sx == gx or sy == gy:
         if is_clear_line(sx, sy, gx, gy, blocked):
-            return deque([(gx, gy)])
+            return [(gx, gy)]
     a = (gx, sy)
     if is_clear_line(sx, sy, *a, blocked) and is_clear_line(*a, gx, gy, blocked):
-        return deque([a, (gx, gy)])
+        return [a, (gx, gy)]
     b = (sx, gy)
     if is_clear_line(sx, sy, *b, blocked) and is_clear_line(*b, gx, gy, blocked):
-        return deque([b, (gx, gy)])
+        return [b, (gx, gy)]
     return None
 
-def compress_straight_segments(cells: list[Tuple[int, int]]) -> deque[Tuple[int, int]]:
-    out: deque[Tuple[int, int]] = deque()
+def compress_straight_segments(cells: list[Cell]) -> Path:
+    out: Path = []
     if len(cells) <= 1:
         return out
     prev_dx = cells[1][0] - cells[0][0]
@@ -125,7 +129,7 @@ def plan_min_turn_path(
     grid_w: int,
     grid_h: int,
     blocked: Callable[[int, int], bool],
-) -> Optional[deque[Tuple[int, int]]]:
+) -> Optional[Path]:
     dirs = [(1, 0), (0, 1), (-1, 0), (0, -1)]
     pq: list[tuple[int, int, int, int, int, int, int]] = []
     dist: dict[tuple[int, int, int], tuple[int, int]] = {}
@@ -156,7 +160,7 @@ def plan_min_turn_path(
                 heapq.heappush(pq, (nturns, nsteps, -nrun, nx, ny, ndir, nrun))
     if end_key is None:
         return None
-    path_cells: list[Tuple[int, int]] = []
+    path_cells: list[Cell] = []
     cur = end_key
     while cur != start_key:
         path_cells.append((cur[0], cur[1]))
@@ -176,32 +180,32 @@ class Robot:
         self.state = RobotState.IDLE
         self.linear_speed = 0.0
         self.rot_speed = 0.0
-        self._target_grid: Optional[Tuple[int, int]] = None
+        self._target_grid: Optional[Cell] = None
         self._target_abs: Optional[Tuple[float, float]] = None
         self._target_heading: Optional[float] = None
         self._rot_dir = 0
-        self._path: deque[Tuple[int, int]] = deque()
+        self._path: Deque[Cell] = deque()
+        self.path: Optional[Path] = None
 
     def move_to(self, gx: int, gy: int, grid_w: int, grid_h: int, blocked: Callable[[int, int], bool]) -> bool:
-        # Reject command if busy
         if not self.idle():
             return False
-        # Already on this place
+        self.path = None
         sx, sy = self.position.grid.x, self.position.grid.y
         if (sx, sy) == (gx, gy):
             return True
-        # Check L shaped path
         l = plan_l_path(sx, sy, gx, gy, blocked)
         if l is not None:
-            self._path = l
+            self._path = deque(l)
+            self.path = list(l)
             self._advance_path()
             return True
-        # No L shaped path
         start_dir = int(deg_to_orientation(self.heading_deg()))
         segs = plan_min_turn_path(sx, sy, start_dir, gx, gy, grid_w, grid_h, blocked)
         if segs is None:
             return False
-        self._path = segs
+        self._path = deque(segs)
+        self.path = list(segs)
         self._advance_path()
         return True
 
@@ -247,8 +251,6 @@ class Robot:
         self._target_grid = (nx, ny)
         self._target_abs = None
         self._start_rotation_to(orientation_to_deg(o))
-
-
 
     def update(self, dt: float) -> None:
         if self.state is RobotState.ROTATING and self._target_heading is not None:
@@ -307,6 +309,8 @@ class Robot:
                 self._target_heading = None
                 self.state = RobotState.IDLE
                 self._advance_path()
+        if self.state is RobotState.IDLE and not self._path:
+            self.path = None
 
     def idle(self) -> bool:
         return self.state is RobotState.IDLE

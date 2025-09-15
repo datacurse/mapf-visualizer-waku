@@ -10,6 +10,7 @@ import type { getConfig as File_About_getConfig } from './pages/about';
 type Page =
 | ({ path: '/about' } & GetConfigResponse<typeof File_About_getConfig>)
 | { path: '/'; render: 'dynamic' }
+| { path: '/sim'; render: 'dynamic' }
 | { path: '/vis'; render: 'dynamic' };
 
 // prettier-ignore
