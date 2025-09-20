@@ -78,7 +78,7 @@ class Grid {
     let current: number | null = goal;
     while (current !== null) {
       path.push(current);
-      current = parent.get(current);
+      current = parent.get(current) ?? null;
     }
     path.reverse();
     return path;
@@ -99,10 +99,8 @@ class Reservations {
   tryLockMove(agent: number, u: number, v: number) {
     const vo = this.vertexOwner.get(v);
     if (vo !== undefined && vo !== agent) return false;
-    const k = this.key(u, v),
-      kr = this.key(v, u);
-    const eo = this.edgeOwner.get(k),
-      eor = this.edgeOwner.get(kr);
+    const k = this.key(u, v), kr = this.key(v, u);
+    const eo = this.edgeOwner.get(k), eor = this.edgeOwner.get(kr);
     if ((eo !== undefined && eo !== agent) || (eor !== undefined && eor !== agent)) return false;
     this.vertexOwner.set(v, agent);
     this.edgeOwner.set(k, agent);
@@ -139,6 +137,7 @@ class Agent {
   g: any;
   size = 60;
   color: string;
+  goal: number;
 
   constructor(id: number, grid: Grid, res: Reservations, path: number[], kin: any, color: string, two: Two) {
     this.id = id;
@@ -154,6 +153,7 @@ class Agent {
     this.kin = kin;
     this.state = "contracted";
     this.color = color;
+    this.goal = path[path.length - 1];
     this.res.occupyVertex(this.id, this.from);
     this.g = drawRobot(two, this.pos.x * 100, this.pos.y * 100, this.size, color, String(id));
   }
@@ -253,6 +253,8 @@ export class TwoController {
   private s: number = 100;
   private speedMultiplier: number = 10;
   private numAgents: number;
+  private replanRequested = false;
+  private finishers = new Set<number>();
 
   private colors: string[] = [
     "#FF5A5A", "#4A90E2", "#50E3C2", "#F5A623", "#7B1FA2",
@@ -282,7 +284,6 @@ export class TwoController {
       headingTol: 0.03,
     };
 
-    // pick unique random start cells
     const allIds = Array.from({ length: this.grid.w * this.grid.h }, (_, i) => i);
     const shuffled = shuffle(allIds);
     const starts = shuffled.slice(0, this.numAgents);
@@ -294,12 +295,15 @@ export class TwoController {
     while (!paths && attempts < maxAttempts) {
       paths = this.computePaths(starts, goals);
       attempts++;
-    } this.agents = [];
+    }
+    this.agents = [];
     if (paths) {
       for (let i = 0; i < this.numAgents; i++) {
-        const kin = { ...baseKin }; // copy so each agent has its own
+        const kin = { ...baseKin };
         const color = this.colors[i % this.colors.length];
-        this.agents.push(new Agent(i, this.grid, this.res, paths[i], kin, color, two));
+        const a = new Agent(i, this.grid, this.res, paths[i], kin, color, two);
+        a.goal = goals[i];
+        this.agents.push(a);
       }
     } else {
       console.error("Failed to find paths after max attempts");
@@ -322,10 +326,9 @@ export class TwoController {
     this.unbindUpdate = () => this.two?.unbind("update", onUpdate);
   }
 
-
-  private computePaths(starts: number[], goals: number[]): number[][] | null {
+  private computePaths(starts: number[], goals: number[], orderOverride?: number[]): number[][] | null {
     const agentCount = starts.length;
-    const order = shuffle(Array.from({ length: agentCount }, (_, i) => i));
+    const order = orderOverride ? [...orderOverride] : shuffle(Array.from({ length: agentCount }, (_, i) => i));
     const paths: (number[] | undefined)[] = new Array(agentCount);
     const thetaS = new Map<number, Fragment[]>();
     const thetaT = new Map<number, Fragment[]>();
@@ -504,29 +507,25 @@ export class TwoController {
     let dt = (now - this.lastTime) / 1000;
     this.lastTime = now;
     dt = Math.min(0.05, dt);
+
     const order = shuffle([...this.agents]);
     for (const a of order) a.step(dt, this.speedMultiplier);
-    const allDone = this.agents.every((a) => a.done());
-    if (allDone) {
-      const occupied = new Set(this.agents.map((a) => a.from));
-      const allIds = Array.from({ length: this.grid.w * this.grid.h }, (_, i) => i);
-      const available = allIds.filter((id) => !occupied.has(id));
-      shuffle(available);
-      const goals: number[] = [];
-      for (let i = 0; i < this.agents.length; i++) {
-        goals.push(available[i]);
-      }
-      const starts = this.agents.map((a) => a.from);
-      const newPaths = this.computePaths(starts, goals);
-      if (newPaths) {
-        this.agents.forEach((a, i) => {
-          a.path = newPaths[i];
-          a.idx = 0;
-          a.to = null;
-          a.state = "contracted";
-        });
+
+    for (const a of this.agents) {
+      if (a.done() && a.goal === a.from) {
+        const newGoal = this.pickNewGoal(a.id);
+        if (newGoal !== null) {
+          a.goal = newGoal;
+          this.replanRequested = true;
+          this.finishers.add(a.id);
+        }
       }
     }
+
+    if (this.replanRequested && this.allContracted()) {
+      this.performReplan();
+    }
+
     this.pathLayer.remove(this.pathLayer.children);
     for (const a of this.agents) {
       const remainingPath = a.path.slice(a.idx);
@@ -541,7 +540,7 @@ export class TwoController {
         line.linewidth = 3;
         this.pathLayer.add(line);
       }
-      const goalId = a.path[a.path.length - 1];
+      const goalId = a.goal;
       const goalPos = this.grid!.pos(goalId);
       const goalCircle = this.two.makeCircle(goalPos.x * this.s, goalPos.y * this.s, 8);
       goalCircle.fill = 'transparent';
@@ -550,6 +549,46 @@ export class TwoController {
       this.pathLayer.add(goalCircle);
     }
     for (const a of this.agents) a.draw(this.s);
+  }
+
+  private allContracted() {
+    return this.agents.every(a => a.state === "contracted");
+  }
+
+  private pickNewGoal(agentId: number): number {
+    const occupied = new Set(this.agents.map(a => a.from));
+    const otherGoals = new Set(this.agents.filter(a => a.id !== agentId).map(a => a.goal));
+    const allIds = Array.from({ length: this.grid!.w * this.grid!.h }, (_, i) => i);
+    const candidates = allIds.filter(id => !occupied.has(id) && !otherGoals.has(id));
+    if (candidates.length === 0) return allIds.find(id => !occupied.has(id)) ?? allIds[0];
+    shuffle(candidates);
+    return candidates[0];
+  }
+
+  private performReplan() {
+    const starts = this.agents.map(a => a.from);
+    const goals = this.agents.map(a => a.goal);
+    const nonFinishers = this.agents.filter(a => !this.finishers.has(a.id)).map(a => a.id);
+    const finisherIds = Array.from(this.finishers.values());
+    const preferredOrder = [...nonFinishers, ...finisherIds];
+    let newPaths = this.computePaths(starts, goals, preferredOrder);
+    if (!newPaths) newPaths = this.computePaths(starts, goals);
+    if (newPaths) {
+      this.res = new Reservations();
+      for (let i = 0; i < this.agents.length; i++) {
+        const a = this.agents[i];
+        a.path = newPaths[i];
+        a.idx = 0;
+        a.to = null;
+        a.state = "contracted";
+        a.v = 0;
+        a.goal = goals[i];
+        a.res = this.res;
+        this.res.occupyVertex(a.id, a.from);
+      }
+      this.replanRequested = false;
+      this.finishers.clear();
+    }
   }
 
   destroy() {
@@ -566,5 +605,7 @@ export class TwoController {
     this.nodeLayer = null;
     this.pathLayer = null;
     this.agentLayer = null;
+    this.replanRequested = false;
+    this.finishers.clear();
   }
 }

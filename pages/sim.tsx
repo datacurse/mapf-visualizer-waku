@@ -1,9 +1,9 @@
 "use client"
 
 import { Suspense, useEffect } from "react"
-import { SimulatorMap } from "../sim/SimulatorMap"
-import { ensureSocket } from "../sim/socketClient"
-import ClickOverlay from "../sim/ClickOverlay"
+import { SimulatorMap } from "../src/sim/SimulatorMap"
+import { ensureSocket } from "../src/sim/socketClient"
+import ClickOverlay from "../src/sim/ClickOverlay"
 
 export default function Sim() {
   useEffect(() => { ensureSocket() }, [])

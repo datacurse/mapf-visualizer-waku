@@ -4,14 +4,14 @@
 import type { PathsForPages, GetConfigResponse } from 'waku/router';
 
 // prettier-ignore
-import type { getConfig as File_About_getConfig } from './pages/about';
+import type { getConfig as File_About_getConfig } from '../pages/about';
 
 // prettier-ignore
 type Page =
-| ({ path: '/about' } & GetConfigResponse<typeof File_About_getConfig>)
-| { path: '/'; render: 'dynamic' }
-| { path: '/sim'; render: 'dynamic' }
-| { path: '/vis'; render: 'dynamic' };
+  | ({ path: '/about' } & GetConfigResponse<typeof File_About_getConfig>)
+  | { path: '/'; render: 'dynamic' }
+  | { path: '/sim'; render: 'dynamic' }
+  | { path: '/vis'; render: 'dynamic' };
 
 // prettier-ignore
 declare module 'waku/router' {
